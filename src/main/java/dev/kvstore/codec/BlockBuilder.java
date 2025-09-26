@@ -16,7 +16,7 @@ import java.util.zip.CRC32C;
  * Для каждой записи ключ кодируется как:
  * <ul>
  *   <li>{@code sharedPrefixLen} — varint длина общего префикса с предыдущим ключом,</li>
- *   <li>{@code unsharedKeyLen} — varint длина «хвоста» ключа,</li>
+ *   <li>{@code unsharedKeyLen} — varint длина конца ключа,</li>
  *   <li>{@code valueRecordLen} — varint длина сериализованного {@code ValueRecord},</li>
  *   <li>{@code unsharedKeyBytes[unsharedKeyLen]},</li>
  *   <li>{@code valueRecordBytes[valueRecordLen]}.</li>
@@ -27,7 +27,7 @@ import java.util.zip.CRC32C;
  *   <li>{@code restartCount} — varint число точек перезапуска</li>
  *   <li>{@code restartOffsets[restartCount]} — varint-смещения от начала блока</li>
  *   <li>{@code blockBaseVersion} — varint базовая версия для дельт версий</li>
- *   <li>{@code blockBaseExpire} — varint базовый expireAt для дельт TTL/li>
+ *   <li>{@code blockBaseExpire} — varint базовый expireAt для дельт TTL</li>
  *   <li>{@code crc32c} — 4-байтовая CRC32C на всё содержимое блока</li>
  * </ul>
  * </ul>
