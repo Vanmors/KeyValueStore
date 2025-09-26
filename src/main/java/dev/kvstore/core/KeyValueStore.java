@@ -3,13 +3,12 @@ package dev.kvstore.core;
 import dev.kvstore.core.model.*;
 
 import java.io.Closeable;
-import java.util.Optional;
 
 public interface KeyValueStore extends Closeable {
 
-    Optional<ValueRecord> get(byte[] key, ReadOptions options) throws KVException;
+    GetResult get(byte[] key, ReadOptions options) throws KVException;
 
-    default Optional<ValueRecord> get(byte[] key) throws KVException {
+    default GetResult get(byte[] key) throws KVException {
         return get(key, ReadOptions.DEFAULT);
     }
 

@@ -1,7 +1,6 @@
 package dev.kvstore.core.model;
 
 import java.time.Duration;
-import java.util.Optional;
 
 public record PutOptions(
         Duration ttl,
