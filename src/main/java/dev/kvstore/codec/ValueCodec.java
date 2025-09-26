@@ -6,7 +6,8 @@ import java.nio.ByteBuffer;
 
 /**
  * ValueRecord для компактной записи/чтения байтового представления.
- * <p> Первый байт — флаги: * <li>{@code FLAG_TTL (1)} — присутствует TTL
+ * <p> Первый байт — флаги: *
+ * <li>{@code FLAG_TTL (1)} — присутствует TTL
  * <li>{@code FLAG_COMP (1<<1)} — полезная нагрузка сжата
  * <li>{@code FLAG_INLINE (1<<3)} — малое значение <= 15 байт и его длина
  * хранится в 4 младших битах следующего байта</li>
@@ -14,6 +15,7 @@ import java.nio.ByteBuffer;
 public final class ValueCodec {
     private static final int FLAG_TTL = 1;       // 0001
     private static final int FLAG_COMP = 1 << 1;  // 0010
+    // Бит 2 зарезервирован под что-то (сейчас не используется)
     private static final int FLAG_INLINE = 1 << 3;  // 1000 (в младших 4 битах)
 
     private static final int INLINE_MAX = 15;
