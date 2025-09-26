@@ -8,14 +8,12 @@ import dev.kvstore.core.model.PutOptions;
  */
 public interface WriteBatch extends AutoCloseable {
 
-    @SuppressWarnings("UnusedReturnValue")
     WriteBatch put(byte[] key, byte[] value, PutOptions options);
 
     default WriteBatch put(byte[] key, byte[] value) {
         return put(key, value, PutOptions.DEFAULT);
     }
 
-    @SuppressWarnings("UnusedReturnValue")
     WriteBatch delete(byte[] key, DeleteOptions options);
 
     default WriteBatch delete(byte[] key) {

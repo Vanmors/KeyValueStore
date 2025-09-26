@@ -4,13 +4,13 @@ import java.time.Duration;
 import java.util.Optional;
 
 public record PutOptions(
-        Optional<Duration> ttl,
+        Duration ttl,
         boolean sync
 ) {
     public static final PutOptions DEFAULT =
-            new PutOptions(Optional.empty(), false);
+            new PutOptions(null, false);
 
-    public static PutOptions withTtl(Duration ttl) {
-        return new PutOptions(Optional.ofNullable(ttl), false);
+    public static PutOptions withTtl(final Duration ttl) {
+        return new PutOptions(ttl, false);
     }
 }
