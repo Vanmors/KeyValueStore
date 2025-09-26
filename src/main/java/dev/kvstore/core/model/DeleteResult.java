@@ -1,4 +1,4 @@
 package dev.kvstore.core.model;
 
-public record DeleteResult(boolean deleted, long previousVersion) {
+public record DeleteResult(boolean deleted) {
 }
