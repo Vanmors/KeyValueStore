@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package dev.kvstore.proto;
+
+option java_multiple_files = true;
+option java_package = "dev.kvstore.proto";
+option java_outer_classname = "KvRecordProto";
+
+message KVRecord {
+  sint64 version = 1;
+  optional sint64 expire_at = 2;
+  bytes  value = 3;
+  optional bool compressed = 4;
+}

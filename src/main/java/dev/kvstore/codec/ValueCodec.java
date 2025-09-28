@@ -64,32 +64,45 @@ public final class ValueCodec {
         }
     }
 
-    public static ValueRecord read(ByteBuffer src,
-                                   long blockBaseVersion,
-                                   Long blockBaseExpire) {
-        int head = Byte.toUnsignedInt(src.get());
-        int flags = head & 0x0F;          // младшие 4 бита — флаги
-        int inLen4 = (head >>> 4) & 0x0F;  // старшие 4 бита — inline длина
+    public static ValueRecord read(ByteBuffer src, long blockBaseVersion, Long blockBaseExpire) {
+        try {
+            int head = Byte.toUnsignedInt(src.get());
+            int flags = head & 0x0F;
+            int inLen4 = (head >>> 4) & 0x0F;
 
-        long vDelta = ZigZag.decode(VarInts.getVarLong(src));
-        long version = blockBaseVersion + vDelta;
+            int allowed = FLAG_TTL | FLAG_COMP | FLAG_INLINE;
+            if ((flags & ~allowed) != 0) {
+                throw new CodecFormatException("unknown flags: " + Integer.toBinaryString(flags));
+            }
 
-        Long expire = null;
-        if ((flags & FLAG_TTL) != 0) {
-            long base = blockBaseExpire != null ? blockBaseExpire : 0L;
-            long tDelta = ZigZag.decode(VarInts.getVarLong(src));
-            expire = base + tDelta;
+            long vDelta = ZigZag.decode(VarInts.getVarLong(src));
+            long version = blockBaseVersion + vDelta;
+
+            Long expire = null;
+            if ((flags & FLAG_TTL) != 0) {
+                long base = (blockBaseExpire != null) ? blockBaseExpire : 0L;
+                long tDelta = ZigZag.decode(VarInts.getVarLong(src));
+                expire = base + tDelta;
+            }
+
+            final int len;
+            if ((flags & FLAG_INLINE) != 0) {
+                len = inLen4;
+                if (src.remaining() < len) throw new CodecFormatException("truncated inline value");
+            } else {
+                len = VarInts.getVarInt(src);
+                if (len < 0 || len > 64 * 1024 * 1024)
+                    throw new CodecFormatException("value length out of bounds: " + len);
+                if (src.remaining() < len) throw new CodecFormatException("truncated value");
+            }
+
+            byte[] val = new byte[len];
+            src.get(val);
+            return new ValueRecord(val, version, expire);
+        } catch (CodecFormatException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new CodecFormatException("malformed ValueRecord", e);
         }
-
-        int len;
-        if ((flags & FLAG_INLINE) != 0) {
-            len = inLen4; // длина уже в заголовке
-        } else {
-            len = VarInts.getVarInt(src);
-        }
-
-        byte[] val = new byte[len];
-        src.get(val);
-        return new ValueRecord(val, version, expire);
     }
 }

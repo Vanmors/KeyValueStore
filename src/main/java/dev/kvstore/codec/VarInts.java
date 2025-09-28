@@ -74,25 +74,25 @@ public final class VarInts {
         throw new IllegalArgumentException("Malformed varint: exceeds 10 bytes");
     }
 
-    public static int sizeOfVarInt(int value) {
-        long v = Integer.toUnsignedLong(value);
-        if ((v & ~0x7FL) == 0) return 1;
-        if ((v & ~0x3FFFL) == 0) return 2;
-        if ((v & ~0x1FFFFFL) == 0) return 3;
-        if ((v & ~0xFFFFFFFL) == 0) return 4;
-        return 5;
-    }
-
-    public static int sizeOfVarLong(long value) {
-        if ((value & ~0x7FL) == 0) return 1;
-        if ((value & ~0x3FFFL) == 0) return 2;
-        if ((value & ~0x1FFFFFL) == 0) return 3;
-        if ((value & ~0xFFFFFFFL) == 0) return 4;
-        if ((value & ~0x7FFFFFFFFL) == 0) return 5;
-        if ((value & ~0x3FFFFFFFFFFL) == 0) return 6;
-        if ((value & ~0x1FFFFFFFFFFFFL) == 0) return 7;
-        if ((value & ~0xFFFFFFFFFFFFFFL) == 0) return 8;
-        if ((value & ~0x7FFFFFFFFFFFFFFFL) == 0) return 9;
-        return 10;
-    }
+//    public static int sizeOfVarInt(int value) {
+//        long v = Integer.toUnsignedLong(value);
+//        if ((v & ~0x7FL) == 0) return 1;
+//        if ((v & ~0x3FFFL) == 0) return 2;
+//        if ((v & ~0x1FFFFFL) == 0) return 3;
+//        if ((v & ~0xFFFFFFFL) == 0) return 4;
+//        return 5;
+//    }
+//
+//    public static int sizeOfVarLong(long value) {
+//        if ((value & ~0x7FL) == 0) return 1;
+//        if ((value & ~0x3FFFL) == 0) return 2;
+//        if ((value & ~0x1FFFFFL) == 0) return 3;
+//        if ((value & ~0xFFFFFFFL) == 0) return 4;
+//        if ((value & ~0x7FFFFFFFFL) == 0) return 5;
+//        if ((value & ~0x3FFFFFFFFFFL) == 0) return 6;
+//        if ((value & ~0x1FFFFFFFFFFFFL) == 0) return 7;
+//        if ((value & ~0xFFFFFFFFFFFFFFL) == 0) return 8;
+//        if ((value & ~0x7FFFFFFFFFFFFFFFL) == 0) return 9;
+//        return 10;
+//    }
 }

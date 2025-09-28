@@ -10,8 +10,7 @@ package dev.kvstore.codec;
  *   <li>{@code decode(u) = (u >>> 1) ^ -(u & 1)}</li>
  * </ul>
  * <p>
- * Для {@code long} использует арифметический сдвиг вправо на 63 бита,
- * опираясь на two's complement.
+ * Для {@code long} использует сдвиг вправо на 63 бита (two's complement)
  */
 public final class ZigZag {
     private ZigZag() {
