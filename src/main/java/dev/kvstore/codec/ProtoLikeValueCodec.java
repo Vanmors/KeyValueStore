@@ -23,7 +23,7 @@ public final class ProtoLikeValueCodec {
     }
 
     public static void write(ValueRecord vr, ByteBuffer dst, boolean compressed) {
-        // version (sint64 as zigzag varint)
+        // version (sint64 as zigzag varint), чтобы пернести знак в мл. бит
         VarInts.putVarInt(tag(F_VERSION, WT_VARINT), dst);
         VarInts.putVarLong(ZigZag.encode(vr.version()), dst);
 
@@ -38,7 +38,7 @@ public final class ProtoLikeValueCodec {
         VarInts.putVarInt(vr.value().length, dst);
         dst.put(vr.value());
 
-        // compressed flag (optional, write only if true)
+        // compressed (optional)
         if (compressed) {
             VarInts.putVarInt(tag(F_COMPRESSED, WT_VARINT), dst);
             VarInts.putVarInt(1, dst); // bool true
@@ -53,8 +53,8 @@ public final class ProtoLikeValueCodec {
         while (src.hasRemaining()) {
             int t = VarInts.getVarInt(src); // tag
             if (t == 0) break; // defensive break (protobuf allows 0 to end stream)
-            int wt = t & 0x07;
-            int field = t >>> 3;
+            int wt = t & 0x07; // нижние 3 бита где wire type
+            int field = t >>> 3; // сдвиг вправо - остальные биты
 
             switch (field) {
                 case F_VERSION -> {
