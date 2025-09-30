@@ -106,8 +106,8 @@ public final class BlockBuilder {
     public void finish() {
         // счётчики и рестарты
         VarInts.putVarInt(entries, buf);
-        VarInts.putVarInt(restartOffsets.size(), buf);
         for (int off : restartOffsets) VarInts.putVarInt(off, buf);
+        VarInts.putVarInt(restartOffsets.size(), buf);
 
         // базовые значения блока для дельт кодеков
         VarInts.putVarLong(blockBaseVersion, buf);
