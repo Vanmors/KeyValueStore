@@ -58,6 +58,21 @@ public final class VarInts {
         throw new IllegalArgumentException("Malformed varint: exceeds 5 bytes");
     }
 
+    public static int getVarInt(ByteBuffer src, int position) {
+        long result = 0;
+        int shift = 0;
+        int bytesRead = 0;
+
+        while (bytesRead < 5) {
+            byte b = src.get(position - bytesRead);
+            result |= (long) (b & 0x7F) << shift;
+            bytesRead++;
+            if (b >= 0) return (int) result;
+            shift += 7;
+        }
+        throw new IllegalArgumentException("Malformed varint at position " + position + ": exceeds 5 bytes");
+    }
+
     public static long getVarLong(ByteBuffer src) {
         // первый байт без флага продолжения
         byte b = src.get();
