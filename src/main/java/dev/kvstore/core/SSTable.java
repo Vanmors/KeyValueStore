@@ -10,15 +10,19 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
+
 public class SSTable {
     private final File file;
+
     private final int level;
+
     private final List<IndexEntry> index;
+
     private static final int BLOCK_SIZE = 4 * 1024; // 4KB на блок
+
     private static final int RESTART_INTERVAL = 16;
 
     public SSTable(String path, List<Entry> entries, int level) throws IOException {
@@ -97,8 +101,10 @@ public class SSTable {
     }
 
     public Entry search(final byte[] key) throws IOException {
-        final IndexEntry block = searchIndex(Arrays.toString(key));
-        if (block == null) return null;
+        final IndexEntry block = searchIndex(new String(key));
+        if (block == null) {
+            return null;
+        }
         final byte[] blockData = readBlock(block.offset, block.length);
         return searchInBlock(blockData, key);
     }
@@ -130,8 +136,10 @@ public class SSTable {
         }
 
         // Бинарный поиск по restart points
-        int blockOffset = binarySearchRestartPoints(buf, restartOffsets, Arrays.toString(key));
-        if (blockOffset < 0) return null;
+        int blockOffset = binarySearchRestartPoints(buf, restartOffsets, new String(key));
+        if (blockOffset < 0) {
+            return null;
+        }
 
         // Линейный поиск от точки перезапуска
         buf.position(blockOffset);
@@ -151,7 +159,7 @@ public class SSTable {
 
             lastKey = keyBytes;
 
-            if (currentKey.equals(Arrays.toString(key))) {
+            if (currentKey.equals(new String(key))) {
                 boolean tombstone = valueRecord[valueRecord.length - 1] == 1;
                 byte[] value = new byte[valueRecord.length - 1];
                 System.arraycopy(valueRecord, 0, value, 0, value.length);
@@ -175,9 +183,14 @@ public class SSTable {
             buf.get(keyBytes, shared, unshared);
             String restartKey = new String(keyBytes);
             int cmp = key.compareTo(restartKey);
-            if (cmp == 0) return offset;
-            if (cmp < 0) high = mid - 1;
-            else low = mid + 1;
+            if (cmp == 0) {
+                return offset;
+            }
+            if (cmp < 0) {
+                high = mid - 1;
+            } else {
+                low = mid + 1;
+            }
         }
         return restartOffsets.get(high < 0 ? 0 : high);
     }
@@ -185,7 +198,9 @@ public class SSTable {
 
     class IndexEntry {
         String startKey;
+
         long offset;
+
         int length;
 
         IndexEntry(String startKey, long offset, int length) {
