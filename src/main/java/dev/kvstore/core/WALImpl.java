@@ -52,6 +52,7 @@ public class WALImpl implements WAL {
             while (raf.getFilePointer() < raf.length()) {
                 try {
                     final WALEntry entry = deserializeEntry(raf);
+                    raf.getFilePointer();
                     consumer.accept(entry);
                 } catch (IOException e) {
                     System.err.println("Error reading WAL entry at offset " + raf.getFilePointer() + ": " + e.getMessage());
@@ -78,34 +79,63 @@ public class WALImpl implements WAL {
         fos.close();
     }
 
-    private ByteBuffer serializeEntry(final WALEntry entry) {
-        final int keyLen = entry.key() != null ? entry.key().length : 0;
-        final int valueLen = entry.value() != null ? entry.value().length : 0;
-        final int bufferSize = 8 + keyLen + (entry.key() != null ? entry.key().length : 0) + valueLen +
-                (entry.tombstone() ? 0 : entry.value() != null ? entry.value().length : 0) + 1 + 1 + 8; // id + keyLen + key + valueLen + value + tombstone + opType + timestamp
-        final ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
+//    private ByteBuffer serializeEntry(final WALEntry entry) {
+//        final int keyLen = entry.key() != null ? entry.key().length : 0;
+//        final int valueLen = entry.value() != null ? entry.value().length : 0;
+//        final int bufferSize = 8 + keyLen + (entry.key() != null ? entry.key().length : 0) + valueLen +
+//                (entry.tombstone() ? 0 : entry.value() != null ? entry.value().length : 0) + 1 + 1 + 8; // id + keyLen + key + valueLen + value + tombstone + opType + timestamp
+//        final ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
+//
+//        buffer.putLong(entry.id());
+//
+//        buffer.putInt(keyLen);
+//        if (keyLen > 0) {
+//            buffer.put(entry.key());
+//        }
+//
+//        buffer.putInt(valueLen);
+//        if (valueLen > 0) {
+//            buffer.put(entry.value());
+//        }
+//
+//        buffer.put((byte) (!entry.tombstone() ? 0 : 1));
+//
+//        buffer.put((byte) (entry.operationType() == WALOperationType.PUT ? 0 : 1));
+//
+//        buffer.putLong(entry.timestamp());
+//
+//        buffer.flip();
+//        return buffer;
+//    }
+private ByteBuffer serializeEntry(final WALEntry entry) {
+    final int keyLen = entry.key() != null ? entry.key().length : 0;
+    final int valueLen = entry.value() != null ? entry.value().length : 0;
 
-        buffer.putLong(entry.id());
+    final int bufferSize =
+            8  // id
+                    + 4  // keyLen
+                    + keyLen
+                    + 4  // valueLen
+                    + valueLen
+                    + 1  // tombstone
+                    + 1  // opType
+                    + 8; // timestamp
 
-        buffer.putInt(keyLen);
-        if (keyLen > 0) {
-            buffer.put(entry.key());
-        }
+    final ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
 
-        buffer.putInt(valueLen);
-        if (valueLen > 0) {
-            buffer.put(entry.value());
-        }
+    buffer.putLong(entry.id());
+    buffer.putInt(keyLen);
+    if (keyLen > 0) buffer.put(entry.key());
+    buffer.putInt(valueLen);
+    if (valueLen > 0) buffer.put(entry.value());
+    buffer.put((byte) (entry.tombstone() ? 1 : 0));
+    buffer.put((byte) (entry.operationType() == WALOperationType.PUT ? 0 : 1));
+    buffer.putLong(entry.timestamp());
 
-        buffer.put((byte) (!entry.tombstone() ? 0 : 1));
+    buffer.flip();
+    return buffer;
+}
 
-        buffer.put((byte) (entry.operationType() == WALOperationType.PUT ? 0 : 1));
-
-        buffer.putLong(entry.timestamp());
-
-        buffer.flip();
-        return buffer;
-    }
 
     private WALEntry deserializeEntry(RandomAccessFile raf) throws IOException {
         long id = raf.readLong();

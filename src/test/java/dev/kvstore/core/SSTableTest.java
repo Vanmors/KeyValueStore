@@ -1,5 +1,6 @@
 package dev.kvstore.core;
 
+import dev.kvstore.core.LSM.SSTable;
 import dev.kvstore.core.model.Entry;
 import org.junit.jupiter.api.Test;
 

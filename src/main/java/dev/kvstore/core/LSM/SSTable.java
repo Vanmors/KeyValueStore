@@ -1,4 +1,4 @@
-package dev.kvstore.core;
+package dev.kvstore.core.LSM;
 
 import dev.kvstore.codec.BlockBuilder;
 import dev.kvstore.codec.VarInts;

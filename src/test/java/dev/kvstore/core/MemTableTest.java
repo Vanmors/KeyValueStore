@@ -1,7 +1,8 @@
 package dev.kvstore.core;
 
+import dev.kvstore.core.LSM.SSTable;
 import dev.kvstore.core.model.Entry;
-import dev.kvstore.core.model.MemTable;
+import dev.kvstore.core.LSM.MemTable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +32,17 @@ public class MemTableTest {
         final var value = new String(memTable.get("hello".getBytes()).value());
 
         assertEquals("world", value);
+    }
+
+
+    @Test
+    void getValueInt() {
+        final var entry = new Entry("hello".getBytes(), new byte[]{ (byte) 1 }, false);
+
+        memTable.set(entry);
+        final var value = memTable.get("hello".getBytes()).value();
+
+        assertEquals((byte) 1, value[0]);
     }
 
     @Test

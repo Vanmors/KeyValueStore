@@ -1,4 +1,6 @@
-package dev.kvstore.core.model;
+package dev.kvstore.core.LSM;
+
+import dev.kvstore.core.model.Entry;
 
 import java.util.Arrays;
 import java.util.Map;

@@ -5,7 +5,7 @@ import dev.kvstore.core.model.*;
 import java.io.Closeable;
 import java.io.IOException;
 
-public interface KeyValueStore extends Closeable {
+public interface KeyValueStore {
 
     GetResult get(byte[] key, ReadOptions options) throws KVException, IOException;
 
@@ -36,6 +36,4 @@ public interface KeyValueStore extends Closeable {
     // убирать могильники для лабы 3?
     void compact() throws KVException;
 
-    @Override
-    void close();
 }
