@@ -16,13 +16,11 @@ import java.util.function.Consumer;
 
 public class SSTable {
     private final File file;
-    private final int level;
     private final List<IndexEntry> index;
     private static final int BLOCK_SIZE = 4 * 1024; // 4KB на блок
     private static final int RESTART_INTERVAL = 16;
 
-    public SSTable(String path, List<Entry> entries, int level) throws IOException {
-        this.level = level;
+    public SSTable(String path, List<Entry> entries) throws IOException {
         this.file = new File(path + ".sstable");
         this.index = new ArrayList<>();
         writeData(entries);
@@ -83,6 +81,65 @@ public class SSTable {
 
     private int estimateIndexSize() {
         return 4 + index.size() * 100; // Упрощенная оценка
+    }
+
+    public List<Entry> getAllEntries() throws IOException {
+        List<Entry> entries = new ArrayList<>();
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            // Для каждого блока в индексе
+            for (IndexEntry ie : index) {
+                // Читаем блок
+                byte[] blockData = readBlock(ie.offset, ie.length);
+                ByteBuffer buf = ByteBuffer.wrap(blockData);
+
+                // Читаем метаданные с конца
+                int pos = buf.limit();
+                pos -= 4; // Пропускаем crc32c
+                buf.position(pos);
+                int crc32c = buf.getInt();
+
+                pos = readVarIntBackwards(buf, pos - 1, out -> {});
+                long blockBaseExpire = readVarIntLong(buf, pos);
+
+                pos = readVarIntBackwards(buf, pos - 1, out -> {});
+                long blockBaseVersion = readVarIntLong(buf, pos);
+
+                List<Integer> restartOffsets = new ArrayList<>();
+                pos = readVarIntBackwards(buf, pos - 1, out -> {});
+                int restartCount = VarInts.getVarInt(buf, pos);
+
+                for (int i = 0; i < restartCount; i++) {
+                    pos = readVarIntBackwards(buf, pos - 1, offset -> restartOffsets.add(0, offset));
+                }
+
+                pos = readVarIntBackwards(buf, pos - 1, out -> {});
+                int entriesCount = VarInts.getVarInt(buf, pos);
+
+                // Читаем все записи в блоке
+                buf.position(0);
+                byte[] lastKey = new byte[0];
+                while (buf.position() < pos) {
+                    int shared = VarInts.getVarInt(buf);
+                    int unshared = VarInts.getVarInt(buf);
+                    int valueLen = VarInts.getVarInt(buf);
+
+                    byte[] keyBytes = new byte[shared + unshared];
+                    System.arraycopy(lastKey, 0, keyBytes, 0, shared);
+                    buf.get(keyBytes, shared, unshared);
+
+                    byte[] valueRecord = new byte[valueLen];
+                    buf.get(valueRecord);
+
+                    lastKey = keyBytes;
+
+                    boolean tombstone = valueRecord[valueRecord.length - 1] == 1;
+                    byte[] value = new byte[valueRecord.length - 1];
+                    System.arraycopy(valueRecord, 0, value, 0, value.length);
+                    entries.add(new Entry(keyBytes, value, tombstone));
+                }
+            }
+        }
+        return entries;
     }
 
     public Entry search(final byte[] key) throws IOException {

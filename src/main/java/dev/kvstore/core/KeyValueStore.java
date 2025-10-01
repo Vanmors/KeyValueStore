@@ -33,7 +33,4 @@ public interface KeyValueStore {
 
     void flush() throws KVException, IOException;
 
-    // убирать могильники для лабы 3?
-    void compact() throws KVException;
-
 }

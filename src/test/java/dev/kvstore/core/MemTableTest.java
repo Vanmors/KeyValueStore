@@ -78,7 +78,7 @@ public class MemTableTest {
         final Set<Map.Entry<byte[], Entry>> entries = memTable.getAllEntries();
         final List<Entry> entryList = entries.stream().map(Map.Entry::getValue).toList();
 
-        final var SSTable = new SSTable(".", entryList, 0);
+        final var SSTable = new SSTable(".", entryList);
 
         final var result = SSTable.search("hello".getBytes());
         final var result1 = SSTable.search("Ivan".getBytes());
