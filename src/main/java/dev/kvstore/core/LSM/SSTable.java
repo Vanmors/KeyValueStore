@@ -28,6 +28,47 @@ public class SSTable {
         return file.lastModified();
     }
 
+    private static final class Trailer {
+        final int dataEnd; // позиция начала
+        final List<Integer> restartOffsets;
+
+        Trailer(int dataEnd, List<Integer> restartOffsets) {
+            this.dataEnd = dataEnd;
+            this.restartOffsets = restartOffsets;
+        }
+    }
+
+    private Trailer readTrailer(ByteBuffer buf) {
+        int p = buf.limit();
+        p -= 4; // crc32c
+        buf.position(p);
+
+        // читаем varint'ы с конца; нам нужны только restartOffsets и граница данных
+        // [entriesCount][restartOffsets...][restartCount][blockBaseVersion][blockBaseExpire][crc]
+        final int[] tmp = new int[1];
+
+        // blockBaseExpire
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+        // blockBaseVersion
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+
+        // restartCount
+        List<Integer> restartOffsets = new ArrayList<>();
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+        int restartCount = tmp[0];
+
+        // рестарты
+        for (int i = 0; i < restartCount; i++) {
+            final int[] off = new int[1];
+            p = readVarIntBackwards(buf, p - 1, v -> off[0] = v);
+            restartOffsets.add(0, off[0]);
+        }
+
+        // entriesCount считываем, чтобы получить границу данных
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+        return new Trailer(p, restartOffsets);
+    }
+
     public SSTable(String path, List<Entry> entries) throws IOException {
         this.file = new File(path + ".sstable"); // для демо ок, но не очень красиво в будущем
         this.index = new ArrayList<>();
@@ -95,79 +136,48 @@ public class SSTable {
     }
 
     public List<Entry> getAllEntries() throws IOException {
+        if (!file.exists()) return java.util.Collections.emptyList();
+
         List<Entry> out = new ArrayList<>();
-        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-            for (IndexEntry ie : index) {
-                byte[] blockData = readBlock(ie.offset, ie.length);
-                ByteBuffer buf = ByteBuffer.wrap(blockData);
+        for (IndexEntry ie : index) {
+            byte[] blockData = readBlock(ie.offset, ie.length);
+            ByteBuffer buf = ByteBuffer.wrap(blockData);
 
-                // ==== читаем трейлер РОВНО как у тебя сейчас ====
-                int p = buf.limit();
-                p -= 4; // crc
-                buf.position(p);
+            Trailer tr = readTrailer(buf);
+            int p = tr.dataEnd;
+            List<Integer> restartOffsets = tr.restartOffsets;
 
-                final int[] tmp = new int[1];
-                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-                long blockBaseExpire = tmp[0];
+            buf.position(0);
+            byte[] lastKey = new byte[0];
+            int rIdx = 0;
+            int nextRestart = restartOffsets.isEmpty() ? Integer.MAX_VALUE : restartOffsets.get(0);
 
-                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-                long blockBaseVersion = tmp[0];
-
-                List<Integer> restartOffsets = new ArrayList<>();
-                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-                int restartCount = tmp[0];
-
-                for (int i = 0; i < restartCount; i++) {
-                    final int[] off = new int[1];
-                    p = readVarIntBackwards(buf, p - 1, v -> off[0] = v);
-                    restartOffsets.add(0, off[0]); // прямой порядок
+            while (buf.position() < p) {
+                if (buf.position() == nextRestart) {
+                    lastKey = new byte[0];
+                    nextRestart = (++rIdx < restartOffsets.size()) ? restartOffsets.get(rIdx) : Integer.MAX_VALUE;
                 }
 
-                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-                int entriesCount = tmp[0];
-                // ==== конец чтения трейлера ====
+                int shared = VarInts.getVarInt(buf);
+                int unshared = VarInts.getVarInt(buf);
+                int valueLen = VarInts.getVarInt(buf);
 
-                // Линейный проход с учётом рестартов
-                buf.position(0);
-                byte[] lastKey = new byte[0];
-                int rIdx = 0;
-                int nextRestart = (restartOffsets.isEmpty() ? Integer.MAX_VALUE : restartOffsets.get(0));
+                if (shared > lastKey.length) shared = 0;
 
-                while (buf.position() < p) {
-                    // если попали на рестарт — сбрасываем lastKey
-                    if (buf.position() == nextRestart) {
-                        lastKey = new byte[0];
-                        if (rIdx + 1 < restartOffsets.size()) {
-                            nextRestart = restartOffsets.get(++rIdx);
-                        } else {
-                            nextRestart = Integer.MAX_VALUE;
-                        }
-                    }
+                byte[] keyBytes = new byte[shared + unshared];
+                if (shared > 0) System.arraycopy(lastKey, 0, keyBytes, 0, shared);
+                buf.get(keyBytes, shared, unshared);
 
-                    int shared = VarInts.getVarInt(buf);
-                    int unshared = VarInts.getVarInt(buf);
-                    int valueLen = VarInts.getVarInt(buf);
+                byte[] valueRecord = new byte[valueLen];
+                buf.get(valueRecord);
 
-                    // страховка от несогласованности: если shared > lastKey.length, считаем запись рестартом
-                    if (shared > lastKey.length) {
-                        shared = 0;
-                    }
+                lastKey = keyBytes;
 
-                    byte[] keyBytes = new byte[shared + unshared];
-                    if (shared > 0) System.arraycopy(lastKey, 0, keyBytes, 0, shared);
-                    buf.get(keyBytes, shared, unshared);
+                boolean tombstone = valueRecord[valueRecord.length - 1] == 1;
+                byte[] value = new byte[valueRecord.length - 1];
+                if (value.length > 0) System.arraycopy(valueRecord, 0, value, 0, value.length);
 
-                    byte[] valueRecord = new byte[valueLen];
-                    buf.get(valueRecord);
-
-                    lastKey = keyBytes;
-
-                    boolean tombstone = valueRecord[valueRecord.length - 1] == 1;
-                    byte[] value = new byte[valueRecord.length - 1];
-                    if (value.length > 0) System.arraycopy(valueRecord, 0, value, 0, value.length);
-
-                    out.add(new Entry(keyBytes, value, tombstone));
-                }
+                out.add(new Entry(keyBytes, value, tombstone));
             }
         }
         return out;
@@ -214,53 +224,25 @@ public class SSTable {
     private Entry searchInBlock(final byte[] blockData, final byte[] key) {
         ByteBuffer buf = ByteBuffer.wrap(blockData);
 
-        // читаем трейлер блокa
-        int p = buf.limit();
-        p -= 4;
-        buf.position(p);
+        Trailer tr = readTrailer(buf);
+        int p = tr.dataEnd;
+        List<Integer> restartOffsets = tr.restartOffsets;
 
-        final int[] tmp = new int[1];
-
-        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-        long blockBaseExpire = tmp[0];
-
-        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-        long blockBaseVersion = tmp[0];
-
-        List<Integer> restartOffsets = new ArrayList<>();
-        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-        int restartCount = tmp[0];
-
-        for (int i = 0; i < restartCount; i++) {
-            final int[] off = new int[1];
-            p = readVarIntBackwards(buf, p - 1, v -> off[0] = v);
-            restartOffsets.add(0, off[0]);
-        }
-
-        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
-        int entriesCount = tmp[0];
-
-        // Бинарный поиск по restart points
         int blockOffset = binarySearchRestartPoints(buf, restartOffsets, key);
-        if (blockOffset < 0) {
-            return null;
-        }
+        if (blockOffset < 0) return null;
 
-        // Линейный поиск от точки перезапуска
         buf.position(blockOffset);
         byte[] lastKey = new byte[0];
-        while (buf.position() < p) { // До начала метаданных
+
+        while (buf.position() < p) {
             int shared = VarInts.getVarInt(buf);
             int unshared = VarInts.getVarInt(buf);
             int valueLen = VarInts.getVarInt(buf);
 
-            if (shared > lastKey.length) {
-                // повреждение или неверное смещение;
-                return null;
-            }
+            if (shared > lastKey.length) return null; // невалидная запись
 
             byte[] keyBytes = new byte[shared + unshared];
-            System.arraycopy(lastKey, 0, keyBytes, 0, shared);
+            if (shared > 0) System.arraycopy(lastKey, 0, keyBytes, 0, shared);
             buf.get(keyBytes, shared, unshared);
 
             byte[] valueRecord = new byte[valueLen];
@@ -271,7 +253,7 @@ public class SSTable {
             if (Arrays.equals(keyBytes, key)) {
                 boolean tombstone = valueRecord[valueRecord.length - 1] == 1;
                 byte[] value = new byte[valueRecord.length - 1];
-                System.arraycopy(valueRecord, 0, value, 0, value.length);
+                if (value.length > 0) System.arraycopy(valueRecord, 0, value, 0, value.length);
                 return new Entry(keyBytes, value, tombstone);
             }
         }
