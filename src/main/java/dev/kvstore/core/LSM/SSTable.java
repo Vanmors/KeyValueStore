@@ -18,17 +18,25 @@ public class SSTable {
     private final File file;
     private final List<IndexEntry> index;
     private static final int BLOCK_SIZE = 128;
-    private static final int RESTART_INTERVAL = 16;
+    private static final int RESTART_INTERVAL = 16; // рестарт каждые 16 ключей
+
+    public File file() {
+        return file;
+    }
+
+    public long createdAtMillis() {
+        return file.lastModified();
+    }
 
     public SSTable(String path, List<Entry> entries) throws IOException {
-        this.file = new File(path + ".sstable");
+        this.file = new File(path + ".sstable"); // для демо ок, но не очень красиво в будущем
         this.index = new ArrayList<>();
         writeData(entries);
     }
 
     private void writeData(final List<Entry> entries) throws IOException {
         try (final FileOutputStream fos = new FileOutputStream(file)) {
-            ByteBuffer blockBuf = ByteBuffer.allocate(BLOCK_SIZE);
+            ByteBuffer blockBuf = ByteBuffer.allocate(BLOCK_SIZE); // бьём файл на блоки
             BlockBuilder builder = new BlockBuilder(blockBuf, RESTART_INTERVAL);
             byte[] firstKey = null; // Теперь byte[]
             long blockOffset = 0;
@@ -59,8 +67,11 @@ public class SSTable {
     }
 
     private ByteBuffer serializeValueRecord(final Entry entry) {
-        final ByteBuffer buf = ByteBuffer.allocate(entry.value().length + 1);
-        buf.put(entry.value());
+        final int valLen = (entry.tombstone() || entry.value() == null) ? 0 : entry.value().length;
+        final ByteBuffer buf = ByteBuffer.allocate(valLen + 1);
+        if (valLen > 0) {
+            buf.put(entry.value());
+        }
         buf.put((byte) (entry.tombstone() ? 1 : 0));
         buf.flip();
         return buf;
@@ -84,47 +95,66 @@ public class SSTable {
     }
 
     public List<Entry> getAllEntries() throws IOException {
-        List<Entry> entries = new ArrayList<>();
+        List<Entry> out = new ArrayList<>();
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-            // Для каждого блока в индексе
             for (IndexEntry ie : index) {
-                // Читаем блок
                 byte[] blockData = readBlock(ie.offset, ie.length);
                 ByteBuffer buf = ByteBuffer.wrap(blockData);
 
-                // Читаем метаданные с конца
-                int pos = buf.limit();
-                pos -= 4; // Пропускаем crc32c
-                buf.position(pos);
-                int crc32c = buf.getInt();
+                // ==== читаем трейлер РОВНО как у тебя сейчас ====
+                int p = buf.limit();
+                p -= 4; // crc
+                buf.position(p);
 
-                pos = readVarIntBackwards(buf, pos - 1, out -> {});
-                long blockBaseExpire = readVarIntLong(buf, pos);
+                final int[] tmp = new int[1];
+                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+                long blockBaseExpire = tmp[0];
 
-                pos = readVarIntBackwards(buf, pos - 1, out -> {});
-                long blockBaseVersion = readVarIntLong(buf, pos);
+                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+                long blockBaseVersion = tmp[0];
 
                 List<Integer> restartOffsets = new ArrayList<>();
-                pos = readVarIntBackwards(buf, pos - 1, out -> {});
-                int restartCount = VarInts.getVarInt(buf, pos);
+                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+                int restartCount = tmp[0];
 
                 for (int i = 0; i < restartCount; i++) {
-                    pos = readVarIntBackwards(buf, pos - 1, offset -> restartOffsets.add(0, offset));
+                    final int[] off = new int[1];
+                    p = readVarIntBackwards(buf, p - 1, v -> off[0] = v);
+                    restartOffsets.add(0, off[0]); // прямой порядок
                 }
 
-                pos = readVarIntBackwards(buf, pos - 1, out -> {});
-                int entriesCount = VarInts.getVarInt(buf, pos);
+                p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+                int entriesCount = tmp[0];
+                // ==== конец чтения трейлера ====
 
-                // Читаем все записи в блоке
+                // Линейный проход с учётом рестартов
                 buf.position(0);
                 byte[] lastKey = new byte[0];
-                while (buf.position() < pos) {
+                int rIdx = 0;
+                int nextRestart = (restartOffsets.isEmpty() ? Integer.MAX_VALUE : restartOffsets.get(0));
+
+                while (buf.position() < p) {
+                    // если попали на рестарт — сбрасываем lastKey
+                    if (buf.position() == nextRestart) {
+                        lastKey = new byte[0];
+                        if (rIdx + 1 < restartOffsets.size()) {
+                            nextRestart = restartOffsets.get(++rIdx);
+                        } else {
+                            nextRestart = Integer.MAX_VALUE;
+                        }
+                    }
+
                     int shared = VarInts.getVarInt(buf);
                     int unshared = VarInts.getVarInt(buf);
                     int valueLen = VarInts.getVarInt(buf);
 
+                    // страховка от несогласованности: если shared > lastKey.length, считаем запись рестартом
+                    if (shared > lastKey.length) {
+                        shared = 0;
+                    }
+
                     byte[] keyBytes = new byte[shared + unshared];
-                    System.arraycopy(lastKey, 0, keyBytes, 0, shared);
+                    if (shared > 0) System.arraycopy(lastKey, 0, keyBytes, 0, shared);
                     buf.get(keyBytes, shared, unshared);
 
                     byte[] valueRecord = new byte[valueLen];
@@ -134,12 +164,13 @@ public class SSTable {
 
                     boolean tombstone = valueRecord[valueRecord.length - 1] == 1;
                     byte[] value = new byte[valueRecord.length - 1];
-                    System.arraycopy(valueRecord, 0, value, 0, value.length);
-                    entries.add(new Entry(keyBytes, value, tombstone));
+                    if (value.length > 0) System.arraycopy(valueRecord, 0, value, 0, value.length);
+
+                    out.add(new Entry(keyBytes, value, tombstone));
                 }
             }
         }
-        return entries;
+        return out;
     }
 
     public Entry search(final byte[] key) throws IOException {
@@ -183,28 +214,31 @@ public class SSTable {
     private Entry searchInBlock(final byte[] blockData, final byte[] key) {
         ByteBuffer buf = ByteBuffer.wrap(blockData);
 
-        // Читаем метаданные с конца последовательно
-        int pos = buf.limit();
-        pos -= 4; // Пропускаем crc32c
-        buf.position(pos);
-        int crc32c = buf.getInt();
+        // читаем трейлер блокa
+        int p = buf.limit();
+        p -= 4;
+        buf.position(p);
 
-        pos = readVarIntBackwards(buf, pos - 1, out -> {});
-        long blockBaseExpire = readVarIntLong(buf, pos);
+        final int[] tmp = new int[1];
 
-        pos = readVarIntBackwards(buf, pos - 1, out -> {});
-        long blockBaseVersion = readVarIntLong(buf, pos);
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+        long blockBaseExpire = tmp[0];
+
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+        long blockBaseVersion = tmp[0];
 
         List<Integer> restartOffsets = new ArrayList<>();
-        pos = readVarIntBackwards(buf, pos - 1, out -> {});
-        int restartCount = VarInts.getVarInt(buf, pos);
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+        int restartCount = tmp[0];
 
         for (int i = 0; i < restartCount; i++) {
-            pos = readVarIntBackwards(buf, pos - 1, offset -> restartOffsets.add(0, offset));
+            final int[] off = new int[1];
+            p = readVarIntBackwards(buf, p - 1, v -> off[0] = v);
+            restartOffsets.add(0, off[0]);
         }
 
-        pos = readVarIntBackwards(buf, pos - 1, out -> {});
-        int entries = VarInts.getVarInt(buf, pos);
+        p = readVarIntBackwards(buf, p - 1, v -> tmp[0] = v);
+        int entriesCount = tmp[0];
 
         // Бинарный поиск по restart points
         int blockOffset = binarySearchRestartPoints(buf, restartOffsets, key);
@@ -215,10 +249,15 @@ public class SSTable {
         // Линейный поиск от точки перезапуска
         buf.position(blockOffset);
         byte[] lastKey = new byte[0];
-        while (buf.position() < pos) { // До начала метаданных
+        while (buf.position() < p) { // До начала метаданных
             int shared = VarInts.getVarInt(buf);
             int unshared = VarInts.getVarInt(buf);
             int valueLen = VarInts.getVarInt(buf);
+
+            if (shared > lastKey.length) {
+                // повреждение или неверное смещение;
+                return null;
+            }
 
             byte[] keyBytes = new byte[shared + unshared];
             System.arraycopy(lastKey, 0, keyBytes, 0, shared);
@@ -240,44 +279,45 @@ public class SSTable {
     }
 
     private int binarySearchRestartPoints(ByteBuffer buf, List<Integer> restartOffsets, byte[] key) {
-        if (restartOffsets.isEmpty()) {
-            return -1;
+        if (restartOffsets == null || restartOffsets.isEmpty()) {
+            return 0; // нет рестартов — сканируем блок целиком
         }
 
-        int low = 0;
-        int high = restartOffsets.size() - 1;
+        try {
+            int low = 0, high = restartOffsets.size() - 1;
+            while (low <= high) {
+                int mid = (low + high) >>> 1;
+                int offset = restartOffsets.get(mid);
 
-        while (low <= high) {
-            int mid = (low + high) >>> 1;
-            int offset = restartOffsets.get(mid);
-            buf.position(offset);
-            int shared = VarInts.getVarInt(buf);
-            int unshared = VarInts.getVarInt(buf);
-            int valueLen = VarInts.getVarInt(buf);
-            byte[] keyBytes = new byte[shared + unshared];
-            System.arraycopy(new byte[0], 0, keyBytes, 0, shared); // shared=0 для restart
-            buf.get(keyBytes, shared, unshared);
-            int cmp = Arrays.compare(key, keyBytes);
+                // читаем заголовок записи на рестарте
+                buf.position(offset);
+                int shared = VarInts.getVarInt(buf);
+                int unshared = VarInts.getVarInt(buf);
+                int valueLen = VarInts.getVarInt(buf);
 
-            if (cmp == 0) {
-                return offset; // Точное совпадение
+                // На рестарте shared должен быть 0, но если нет — считаем метаданные битыми и падаем в линейный скан
+                if (shared != 0 || unshared < 0) {
+                    return 0;
+                }
+
+                // ключ на рестарте — это unshared байты
+                byte[] keyBytes = new byte[unshared];
+                buf.get(keyBytes);
+                // скипаем value
+                buf.position(buf.position() + valueLen);
+
+                int cmp = Arrays.compare(key, keyBytes);
+                if (cmp == 0) return offset;
+                if (cmp < 0) high = mid - 1;
+                else low = mid + 1;
             }
-            if (cmp < 0) {
-                high = mid - 1; // Ключ меньше, ищем в левой половине
-            } else {
-                low = mid + 1; // Ключ больше, ищем в правой половине
-            }
-        }
 
-        // Если ключ не найден, возвращаем ближайшую точку перезапуска, где ключ может быть
-        int closest = high;
-        if (closest < 0) {
-            return restartOffsets.get(0); // Ключ меньше всех, начинаем с первой точки
+            int idx = Math.max(0, high);
+            return restartOffsets.get(idx); // ближайший ≤ key
+        } catch (RuntimeException e) {
+            // любой сбой парсинга — безопасный фоллбэк
+            return 0;
         }
-        if (closest >= restartOffsets.size()) {
-            return restartOffsets.get(restartOffsets.size() - 1); // Ключ больше всех, начинаем с последней точки
-        }
-        return restartOffsets.get(closest);
     }
 
     // Вспомогательные методы для чтения varint назад

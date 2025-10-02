@@ -4,6 +4,7 @@ import dev.kvstore.core.model.Entry;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -11,7 +12,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class MemTable {
     private final ConcurrentSkipListMap<byte[], Entry> skipList =
-            new ConcurrentSkipListMap<>(Arrays::compare);
+            new ConcurrentSkipListMap<>(Arrays::compare); // лексикографическая сортировка по байтам
 
     private final AtomicLong sizeInBytes = new AtomicLong(0);
 
@@ -19,7 +20,7 @@ public class MemTable {
 
     public MemTable(final long maxSize) {
         this.maxSize = maxSize;
-    }
+    } // лимит
 
     public void set(final Entry entry) {
         final long oldSize = getValueSize(entry.key());
@@ -39,6 +40,7 @@ public class MemTable {
         return sizeInBytes.get() > maxSize;
     }
 
+    /// суммируется длина ключа + длина значения + 1 байт под tombstone
     private long calculateEntrySize(final Entry entry) {
         if (entry == null) {
             return 0;
@@ -50,5 +52,16 @@ public class MemTable {
         final Entry existing = skipList.get(key);
         return existing != null ? calculateEntrySize(existing) : 0;
     }
+
+    // получить неизменяемый снимок и обнулить memtable
+    public NavigableMap<byte[], Entry> snapshotAndClear() {
+        // сохраняем порядок байтового лексикографического компаратора
+        final var snap = new java.util.TreeMap<byte[], Entry>(java.util.Arrays::compare);
+        snap.putAll(skipList);
+        skipList.clear();
+        sizeInBytes.set(0);
+        return java.util.Collections.unmodifiableNavigableMap(snap);
+    }
+
 
 }
