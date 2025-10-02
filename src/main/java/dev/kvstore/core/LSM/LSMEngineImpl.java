@@ -48,6 +48,7 @@ public class LSMEngineImpl implements LSMEngine {
         Entry entry = memTable.get(key);
         if (entry != null) return entry.tombstone() ? null : entry;
 
+        // костыль для гонок
         for (int attempt = 0; attempt < 2; attempt++) {
             final NavigableMap<Integer, List<SSTable>> snapshot = new TreeMap<>();
             levelsLock.readLock().lock();
