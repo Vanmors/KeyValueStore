@@ -17,7 +17,7 @@ import java.util.function.Consumer;
 public class SSTable {
     private final File file;
     private final List<IndexEntry> index;
-    private static final int BLOCK_SIZE = 4 * 1024; // 4KB на блок
+    private static final int BLOCK_SIZE = 128;
     private static final int RESTART_INTERVAL = 16;
 
     public SSTable(String path, List<Entry> entries) throws IOException {
