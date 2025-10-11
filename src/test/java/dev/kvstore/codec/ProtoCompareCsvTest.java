@@ -234,18 +234,23 @@ public class ProtoCompareCsvTest {
             if (ring.size() == 8192) ring.clear();
         }
         long t1 = System.nanoTime();
+        double encMs = (t1 - t0) / 1e6;
 
-        long sum = 0;
-        long t2 = System.nanoTime();
+        long decNanos = 0L;
+        long sum = 0L;
         for (Row r : rows) {
-            byte[] b = enc.e(r);  // повторяем encode для честного decode
+            // готовим байты ВНЕ таймера
+            byte[] b = enc.e(r);
+
+            long tBefore = System.nanoTime();
             ValueRecord vr = dec.d(b);
+            long tAfter = System.nanoTime();
+
+            decNanos += (tAfter - tBefore);
             sum += vr.version() ^ (long) vr.value().length;
         }
-        long t3 = System.nanoTime();
+        double decMs = decNanos / 1e6;
 
-        double encMs = (t1 - t0) / 1e6;
-        double decMs = (t3 - t2) / 1e6;
         long heapAfter = usedHeapMB();
 
         System.out.printf(L,
