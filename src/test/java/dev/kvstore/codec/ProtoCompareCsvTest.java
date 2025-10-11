@@ -218,7 +218,7 @@ public class ProtoCompareCsvTest {
      */
     private static Metrics runStreamed(String name, List<Row> rows, Enc enc, Dec dec) {
         // Прогрев
-        int warm = Math.min(2000, rows.size());
+        int warm = Math.min(10000, rows.size());
         for (int i = 0; i < warm; i++) dec.d(enc.e(rows.get(i)));
 
         long heapBefore = usedHeapMB();
