@@ -52,39 +52,27 @@ public class LSMEngineImpl implements LSMEngine {
             return entry.tombstone() ? null : entry;
         }
 
-        // костыль для гонок
-        for (int attempt = 0; attempt < 2; attempt++) {
-            final NavigableMap<Integer, List<SSTable>> snapshot = new TreeMap<>();
-            levelsLock.readLock().lock();
-            try {
-                for (var e : levels.entrySet()) {
-                    snapshot.put(e.getKey(), new ArrayList<>(e.getValue()));
-                }
-            } finally {
-                levelsLock.readLock().unlock();
+        final NavigableMap<Integer, List<SSTable>> snapshot = new TreeMap<>();
+        levelsLock.readLock().lock();
+        try {
+            for (var e : levels.entrySet()) {
+                snapshot.put(e.getKey(), new ArrayList<>(e.getValue()));
             }
+        } finally {
+            levelsLock.readLock().unlock();
+        }
 
-            boolean ioRace = false;
 
-            for (var lvl : snapshot.navigableKeySet()) {
-                // от нового к старому
-                final var tables = new ArrayList<>(snapshot.get(lvl));
-                tables.sort(Comparator.comparingLong(SSTable::createdAtMillis).reversed());
+        for (var lvl : snapshot.navigableKeySet()) {
+            // от нового к старому
+            final var tables = new ArrayList<>(snapshot.get(lvl));
+            tables.sort(Comparator.comparingLong(SSTable::createdAtMillis).reversed());
 
-                for (final SSTable sst : tables) {
-                    try {
-                        entry = sst.search(key);
-                    } catch (IOException ioe) {
-                        ioRace = true; // тк файл могли удалить, просто переснимем уровни и повторим
-                        continue;
-                    }
-                    if (entry != null) {
-                        return entry.tombstone() ? null : entry;
-                    }
+            for (final SSTable sst : tables) {
+                entry = sst.search(key);
+                if (entry != null) {
+                    return entry.tombstone() ? null : entry;
                 }
-            }
-            if (!ioRace) {
-                break;
             }
         }
         return null;
@@ -157,8 +145,7 @@ public class LSMEngineImpl implements LSMEngine {
                         compactLevel(finalI);
                     } catch (Exception e) {
                         e.printStackTrace();
-                    }
-                    finally {
+                    } finally {
                         levelsLock.writeLock().unlock();
                     }
                 });
