@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
 public class LSMEngineImpl implements LSMEngine {
@@ -26,8 +28,8 @@ public class LSMEngineImpl implements LSMEngine {
 
     private final ExecutorService compactor = Executors.newSingleThreadExecutor();
 
-    private final java.util.concurrent.locks.ReadWriteLock levelsLock =
-            new java.util.concurrent.locks.ReentrantReadWriteLock();
+    private final ReadWriteLock levelsLock =
+            new ReentrantReadWriteLock();
 
     public LSMEngineImpl(final String dir, final long memSize) throws IOException {
         this.dir = dir;
@@ -46,7 +48,9 @@ public class LSMEngineImpl implements LSMEngine {
     @Override
     public Entry get(final byte[] key, final ReadOptions options) throws KVException, IOException {
         Entry entry = memTable.get(key);
-        if (entry != null) return entry.tombstone() ? null : entry;
+        if (entry != null) {
+            return entry.tombstone() ? null : entry;
+        }
 
         // костыль для гонок
         for (int attempt = 0; attempt < 2; attempt++) {
@@ -74,10 +78,14 @@ public class LSMEngineImpl implements LSMEngine {
                         ioRace = true; // тк файл могли удалить, просто переснимем уровни и повторим
                         continue;
                     }
-                    if (entry != null) return entry.tombstone() ? null : entry;
+                    if (entry != null) {
+                        return entry.tombstone() ? null : entry;
+                    }
                 }
             }
-            if (!ioRace) break;
+            if (!ioRace) {
+                break;
+            }
         }
         return null;
     }
@@ -111,43 +119,50 @@ public class LSMEngineImpl implements LSMEngine {
 
     @Override
     public void flush() throws KVException, IOException {
-        final var snapshot = memTable.snapshotAndClear();
-        if (snapshot.isEmpty()) return;
-
-        final var entries = new ArrayList<Entry>(snapshot.size());
-        for (var e : snapshot.entrySet()) entries.add(e.getValue());
-
-        final var ts = System.currentTimeMillis();
-        final var base = dir + File.separator + "level0-" + ts;
-        final var sstable = new SSTable(base, entries);
-
         levelsLock.writeLock().lock();
         try {
+            final var snapshot = memTable.snapshotAndClear();
+            if (snapshot.isEmpty()) {
+                return;
+            }
+
+            final var entries = new ArrayList<Entry>(snapshot.size());
+            for (var e : snapshot.entrySet()) {
+                entries.add(e.getValue());
+            }
+
+            final var ts = System.currentTimeMillis();
+            final var base = dir + File.separator + "level0-" + ts;
+            final var sstable = new SSTable(base, entries);
+
             levels.computeIfAbsent(0, k -> new ArrayList<>()).add(sstable);
+
+            wal.clear();
+            compact();
         } finally {
             levelsLock.writeLock().unlock();
         }
-
-        wal.clear();
-        compact(0);
     }
 
     @Override
-    public void compact(final int level) {
-        if (level >= 4) return;
+    public void compact() {
+        for (int i = 0; i < levels.size(); i++) {
+            boolean need = levels.getOrDefault(i, Collections.emptyList()).size() > 3;
 
-        levelsLock.readLock().lock();
-        boolean need = levels.getOrDefault(level, Collections.emptyList()).size() > 3;
-        levelsLock.readLock().unlock();
-
-        if (need) {
-            compactor.submit(() -> {
-                try {
-                    compactLevel(level);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            });
+            if (need) {
+                final int finalI = i;
+                compactor.submit(() -> {
+                    levelsLock.writeLock().lock();
+                    try {
+                        compactLevel(finalI);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    finally {
+                        levelsLock.writeLock().unlock();
+                    }
+                });
+            }
         }
     }
 
@@ -168,6 +183,7 @@ public class LSMEngineImpl implements LSMEngine {
         // соберём все записи с пометкой, из какого источника они пришли
         final class WithSrc {
             final Entry e;
+
             final int src; // 0 — самый новый файл, чем больше — тем старше
 
             WithSrc(Entry e, int src) {
@@ -213,13 +229,10 @@ public class LSMEngineImpl implements LSMEngine {
     private void compactLevel(final int level) throws IOException {
         final List<SSTable> inputs;
 
-        levelsLock.readLock().lock();
-        try {
-            inputs = new ArrayList<>(levels.getOrDefault(level, Collections.emptyList()));
-        } finally {
-            levelsLock.readLock().unlock();
+        inputs = new ArrayList<>(levels.getOrDefault(level, Collections.emptyList()));
+        if (inputs.isEmpty()) {
+            return;
         }
-        if (inputs.isEmpty()) return;
 
         // от самых новых к старым
         inputs.sort(Comparator.comparingLong(SSTable::createdAtMillis).reversed());
@@ -228,12 +241,7 @@ public class LSMEngineImpl implements LSMEngine {
 
         merged.removeIf(Entry::tombstone);
         if (merged.isEmpty()) {
-            levelsLock.writeLock().lock();
-            try {
-                levels.put(level, new ArrayList<>());
-            } finally {
-                levelsLock.writeLock().unlock();
-            }
+            levels.put(level, new ArrayList<>());
             removeFiles(inputs);
             return;
         }
@@ -242,21 +250,14 @@ public class LSMEngineImpl implements LSMEngine {
         final var outBase = dir + File.separator + "level" + (level + 1) + "-" + System.currentTimeMillis();
         final var out = new SSTable(outBase, merged);
 
-        levelsLock.writeLock().lock();
-        try {
-            final var cur = new ArrayList<>(levels.getOrDefault(level, Collections.emptyList()));
-            cur.removeAll(inputs);
-            levels.put(level, cur);
+        final var cur = new ArrayList<>(levels.getOrDefault(level, Collections.emptyList()));
+        cur.removeAll(inputs);
+        levels.put(level, cur);
 
-            levels.computeIfAbsent(level + 1, k -> new ArrayList<>()).add(out);
-        } finally {
-            levelsLock.writeLock().unlock();
-        }
+        levels.computeIfAbsent(level + 1, k -> new ArrayList<>()).add(out);
 
         // удаляем старые файлы с диска
         removeFiles(inputs);
-        // рекурсивно вверх
-        compact(level + 1);
     }
 
 

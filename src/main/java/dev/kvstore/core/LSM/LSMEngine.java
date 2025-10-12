@@ -34,5 +34,5 @@ public interface LSMEngine {
     void flush() throws KVException, IOException;
 
     // убирать могильники для лабы 3?
-    void compact(int level) throws KVException;
+    void compact() throws KVException;
 }
