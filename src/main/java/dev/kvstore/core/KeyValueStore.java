@@ -2,7 +2,6 @@ package dev.kvstore.core;
 
 import dev.kvstore.core.model.*;
 
-import java.io.Closeable;
 import java.io.IOException;
 
 public interface KeyValueStore {

@@ -1,6 +1,6 @@
 package dev.kvstore.controller;
 
-import dev.kvstore.controller.request.GetRequest;
+import dev.kvstore.controller.request.DeleteRequest;
 import dev.kvstore.controller.request.PutRequest;
 import dev.kvstore.core.KVException;
 import dev.kvstore.core.KeyValueStore;
@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.Map;
 
 
@@ -26,17 +25,18 @@ public class KVStoreController {
     private KeyValueStore keyValueStore;
 
     @GetMapping("/get")
-    public ResponseEntity<Map<String, Object>> get(@RequestBody final GetRequest request) throws KVException, IOException {
+    public ResponseEntity<Map<String, Object>> get(@RequestParam("key") String key) throws KVException, IOException {
         try {
-            final GetResult result = keyValueStore.get(request.key().getBytes(StandardCharsets.UTF_8));
-            final Map<String, Object> response = new HashMap<>();
-            if (result.value().value() == null) {
+            final GetResult result = keyValueStore.get(key.getBytes(StandardCharsets.UTF_8));
+            if (!result.found()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "value not found"));
             }
-            response.put("value", result.found() ? new String(result.value().value(), StandardCharsets.UTF_8) : null);
-            response.put("version", result.value().version());
-            response.put("expire", result.value().expireAtMillis());
-            return ResponseEntity.ok(response);
+            final var vr = result.value();
+            return ResponseEntity.ok(Map.of(
+                    "value", vr.value() == null ? null : new String(vr.value(), StandardCharsets.UTF_8),
+                    "version", vr.version(),
+                    "expire", vr.expireAtMillis()
+            ));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
@@ -49,14 +49,17 @@ public class KVStoreController {
                     request.key().getBytes(StandardCharsets.UTF_8),
                     request.value().getBytes(StandardCharsets.UTF_8)
             );
-            return ResponseEntity.ok(Map.of("success", result.created()));
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "created", result.created()
+            ));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
         }
     }
 
     @PostMapping("/delete")
-    public ResponseEntity<Map<String, Object>> delete(@RequestBody final GetRequest request) throws KVException, IOException {
+    public ResponseEntity<Map<String, Object>> delete(@RequestBody final DeleteRequest request) throws KVException, IOException {
         try {
             final DeleteResult result = keyValueStore.delete(request.key().getBytes(StandardCharsets.UTF_8));
             return ResponseEntity.ok(Map.of("success", result.deleted()));

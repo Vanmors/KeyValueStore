@@ -1,3 +1,4 @@
 package dev.kvstore.controller.request;
 
-public record DeleteRequest(String key) {}
+public record DeleteRequest(String key) {
+}

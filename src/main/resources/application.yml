@@ -1,3 +1,4 @@
 kvstore:
   dir: "."
-  memSize: 10000
+  memSize: 67108864
+  server.port: 8080
