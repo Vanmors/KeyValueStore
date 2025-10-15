@@ -2,18 +2,18 @@ package dev.kvstore.core;
 
 import dev.kvstore.core.LSM.LSMEngine;
 import dev.kvstore.core.LSM.LSMEngineImpl;
-import dev.kvstore.core.LSM.MemTable;
-import dev.kvstore.core.LSM.SSTable;
 import dev.kvstore.core.model.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.util.*;
 
 
+@Service
 public class KeyValueStoreImpl implements KeyValueStore {
     private LSMEngine lsmEngine;
 
-    public KeyValueStoreImpl(final String dir, final long memSize) throws IOException {
+    public KeyValueStoreImpl(@Value("${kvstore.dir}") final String dir, @Value("${kvstore.memSize}") final long memSize) throws IOException {
         this.lsmEngine = new LSMEngineImpl(dir, memSize);
     }
 

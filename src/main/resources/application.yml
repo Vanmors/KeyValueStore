@@ -1,0 +1,3 @@
+kvstore:
+  dir: "."
+  memSize: 10000

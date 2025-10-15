@@ -14,6 +14,7 @@
         <junit.jupiter.version>5.10.2</junit.jupiter.version>
         <jmh.version>1.37</jmh.version>
         <protobuf.version>4.28.2</protobuf.version>
+        <spring.version>3.5.6</spring.version>
     </properties>
 
     <dependencyManagement>
@@ -44,6 +45,11 @@
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
             <version>${protobuf.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>${spring.version}</version>
         </dependency>
     </dependencies>
 
@@ -80,7 +86,6 @@
                     <useModulePath>false</useModulePath>
                 </configuration>
             </plugin>
-
             <plugin>
                 <groupId>org.xolstice.maven.plugins</groupId>
                 <artifactId>protobuf-maven-plugin</artifactId>
@@ -113,6 +118,18 @@
                                 <source>target/generated-sources/protobuf/java</source>
                             </sources>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>
