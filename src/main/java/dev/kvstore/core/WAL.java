@@ -1,6 +1,8 @@
 package dev.kvstore.core;
 
+import dev.kvstore.core.model.Entry;
 import dev.kvstore.core.model.WALEntry;
+import dev.kvstore.core.model.WALOperationType;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -9,9 +11,7 @@ import java.util.function.Consumer;
 
 public interface WAL extends Closeable {
 
-    void put(byte[] key, byte[] value) throws IOException;
-
-    void delete(byte[] key) throws IOException;
+    void write(Entry entry, WALOperationType walOperationType) throws IOException;
 
     /**
      * Восстанавливает данные из WAL в память.

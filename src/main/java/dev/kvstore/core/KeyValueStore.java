@@ -3,24 +3,25 @@ package dev.kvstore.core;
 import dev.kvstore.core.model.*;
 
 import java.io.Closeable;
+import java.io.IOException;
 
-public interface KeyValueStore extends Closeable {
+public interface KeyValueStore {
 
-    GetResult get(byte[] key, ReadOptions options) throws KVException;
+    GetResult get(byte[] key, ReadOptions options) throws KVException, IOException;
 
-    default GetResult get(byte[] key) throws KVException {
+    default GetResult get(byte[] key) throws KVException, IOException {
         return get(key, ReadOptions.DEFAULT);
     }
 
-    PutResult put(byte[] key, byte[] value, PutOptions options) throws KVException;
+    PutResult put(byte[] key, byte[] value, PutOptions options) throws KVException, IOException;
 
-    default PutResult put(byte[] key, byte[] value) throws KVException {
+    default PutResult put(byte[] key, byte[] value) throws KVException, IOException {
         return put(key, value, PutOptions.DEFAULT);
     }
 
-    DeleteResult delete(byte[] key, DeleteOptions options) throws KVException;
+    DeleteResult delete(byte[] key, DeleteOptions options) throws KVException, IOException;
 
-    default DeleteResult delete(byte[] key) throws KVException {
+    default DeleteResult delete(byte[] key) throws KVException, IOException {
         return delete(key, DeleteOptions.DEFAULT);
     }
 
@@ -30,11 +31,6 @@ public interface KeyValueStore extends Closeable {
         return scan(range, ReadOptions.DEFAULT);
     }
 
-    void flush() throws KVException;
+    void flush() throws KVException, IOException;
 
-    // убирать могильники для лабы 3?
-    void compact() throws KVException;
-
-    @Override
-    void close();
 }
