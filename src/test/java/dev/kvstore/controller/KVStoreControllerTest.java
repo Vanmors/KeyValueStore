@@ -9,6 +9,9 @@ import dev.kvstore.core.model.DeleteResult;
 import dev.kvstore.core.model.GetResult;
 import dev.kvstore.core.model.PutResult;
 import dev.kvstore.core.model.ValueRecord;
+import dev.kvstore.controller.request.MultiPutRequest;
+import dev.kvstore.controller.request.MultiGetRequest;
+import dev.kvstore.controller.request.MultiDeleteRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +19,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+import java.util.List;
 
 import java.nio.charset.StandardCharsets;
 
@@ -93,6 +98,64 @@ class KVStoreControllerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error", is("boom")));
     }
+
+    @Test
+    @DisplayName("POST /kvstore/get - 200 OK, found=true, корректный JSON")
+    void get_post_found_ok() throws Exception {
+        var valueBytes = "v1".getBytes(StandardCharsets.UTF_8);
+        var vr = new ValueRecord(valueBytes, 7L, 0L);
+        var gr = new GetResult(true, vr);
+
+        when(keyValueStore.get(eq("k1".getBytes(StandardCharsets.UTF_8)))).thenReturn(gr);
+
+        var body = new dev.kvstore.controller.request.GetRequest("k1");
+        mvc.perform(post("/kvstore/get")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsBytes(body)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.value", is("v1")))
+                .andExpect(jsonPath("$.version", is(7)))
+                .andExpect(jsonPath("$.expire", is(0)));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/get - 404 Not Found, когда found=false")
+    void get_post_not_found_404() throws Exception {
+        when(keyValueStore.get(eq("absent".getBytes(StandardCharsets.UTF_8))))
+                .thenReturn(new GetResult(false, null));
+
+        var body = new dev.kvstore.controller.request.GetRequest("absent");
+        mvc.perform(post("/kvstore/get")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsBytes(body)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error", containsString("value not found")));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/get - 400 когда key отсутствует")
+    void get_post_400_when_key_missing() throws Exception {
+        mvc.perform(post("/kvstore/get")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"key\":null}".getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error", containsString("key is required")));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/get - 500 при исключении")
+    void get_post_error_500() throws Exception {
+        when(keyValueStore.get(any())).thenThrow(new KVException("boom"));
+
+        var body = new dev.kvstore.controller.request.GetRequest("k1");
+        mvc.perform(post("/kvstore/get")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsBytes(body)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error", is("boom")));
+    }
+
 
     @Test
     @DisplayName("POST /kvstore/put - 200 OK, created=true")
@@ -188,4 +251,139 @@ class KVStoreControllerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error", is("delete-failed")));
     }
+
+    @Test
+    @DisplayName("POST /kvstore/mput - проверка статусов")
+    void mput_partial_success() throws Exception {
+        // k1 -> created=true, k2 -> throw, k3 -> created=false
+        when(keyValueStore.put(eq("k1".getBytes(StandardCharsets.UTF_8)),
+                eq("v1".getBytes(StandardCharsets.UTF_8))))
+                .thenReturn(new PutResult(true));
+
+        when(keyValueStore.put(eq("k2".getBytes(StandardCharsets.UTF_8)),
+                eq("v2".getBytes(StandardCharsets.UTF_8))))
+                .thenThrow(new KVException("boom-2"));
+
+        when(keyValueStore.put(eq("k3".getBytes(StandardCharsets.UTF_8)),
+                eq("v3".getBytes(StandardCharsets.UTF_8))))
+                .thenReturn(new PutResult(false));
+
+        var body = new MultiPutRequest(List.of(
+                new MultiPutRequest.Item("k1", "v1"),
+                new MultiPutRequest.Item("k2", "v2"),
+                new MultiPutRequest.Item("k3", "v3")
+        ));
+
+        mvc.perform(post("/kvstore/mput")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsBytes(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount", is(2)))
+                .andExpect(jsonPath("$.failureCount", is(1)))
+                .andExpect(jsonPath("$.results", hasSize(3)))
+                .andExpect(jsonPath("$.results[0].key", is("k1")))
+                .andExpect(jsonPath("$.results[0].success", is(true)))
+                .andExpect(jsonPath("$.results[0].created", is(true)))
+                .andExpect(jsonPath("$.results[1].key", is("k2")))
+                .andExpect(jsonPath("$.results[1].success", is(false)))
+                .andExpect(jsonPath("$.results[1].error", containsString("boom-2")))
+                .andExpect(jsonPath("$.results[2].key", is("k3")))
+                .andExpect(jsonPath("$.results[2].success", is(true)))
+                .andExpect(jsonPath("$.results[2].created", is(false)));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/mget - смешанные found/absent/ошибка - корректный per-item ответ")
+    void mget_mixed() throws Exception {
+        var vr1 = new ValueRecord("v1".getBytes(StandardCharsets.UTF_8), 5L, 0L);
+        when(keyValueStore.get(eq("k1".getBytes(StandardCharsets.UTF_8))))
+                .thenReturn(new GetResult(true, vr1));
+
+        // absent
+        when(keyValueStore.get(eq("absent".getBytes(StandardCharsets.UTF_8))))
+                .thenReturn(new GetResult(false, null));
+
+        // ошибка
+        when(keyValueStore.get(eq("bad".getBytes(StandardCharsets.UTF_8))))
+                .thenThrow(new KVException("get-failed"));
+
+        var body = new MultiGetRequest(List.of("k1", "absent", "bad"));
+
+        mvc.perform(post("/kvstore/mget")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsBytes(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.results", hasSize(3)))
+                .andExpect(jsonPath("$.results[0].key", is("k1")))
+                .andExpect(jsonPath("$.results[0].found", is(true)))
+                .andExpect(jsonPath("$.results[0].value", is("v1")))
+                .andExpect(jsonPath("$.results[0].version", is(5)))
+                .andExpect(jsonPath("$.results[1].key", is("absent")))
+                .andExpect(jsonPath("$.results[1].found", is(false)))
+                .andExpect(jsonPath("$.results[2].key", is("bad")))
+                .andExpect(jsonPath("$.results[2].found", is(false)))
+                .andExpect(jsonPath("$.results[2].error", containsString("get-failed")));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/mput - 400 когда items отсутствует")
+    void mput_400_when_items_missing() throws Exception {
+        mvc.perform(post("/kvstore/mput")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":null}".getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error", containsString("items is required")));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/mget - 400 когда keys отсутствует")
+    void mget_400_when_keys_missing() throws Exception {
+        mvc.perform(post("/kvstore/mget")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"keys\":null}".getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error", containsString("keys is required")));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/mdelete - статусы")
+    void mdelete_partial_success() throws Exception {
+        // k1 -> true, k2 -> exception, absent -> false
+        when(keyValueStore.delete(eq("k1".getBytes(StandardCharsets.UTF_8))))
+                .thenReturn(new DeleteResult(true));
+
+        when(keyValueStore.delete(eq("k2".getBytes(StandardCharsets.UTF_8))))
+                .thenThrow(new KVException("del-failed-2"));
+
+        when(keyValueStore.delete(eq("absent".getBytes(StandardCharsets.UTF_8))))
+                .thenReturn(new DeleteResult(false));
+
+        var body = new MultiDeleteRequest(java.util.List.of("k1", "k2", "absent"));
+
+        mvc.perform(post("/kvstore/mdelete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsBytes(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.successCount", is(1)))
+                .andExpect(jsonPath("$.failureCount", is(2)))
+                .andExpect(jsonPath("$.results", hasSize(3)))
+                .andExpect(jsonPath("$.results[0].key", is("k1")))
+                .andExpect(jsonPath("$.results[0].success", is(true)))
+                .andExpect(jsonPath("$.results[1].key", is("k2")))
+                .andExpect(jsonPath("$.results[1].success", is(false)))
+                .andExpect(jsonPath("$.results[1].error", containsString("del-failed-2")))
+                .andExpect(jsonPath("$.results[2].key", is("absent")))
+                .andExpect(jsonPath("$.results[2].success", is(false)));
+    }
+
+    @Test
+    @DisplayName("POST /kvstore/mdelete - 400 когда keys отсутствует")
+    void mdelete_400_when_keys_missing() throws Exception {
+        mvc.perform(post("/kvstore/mdelete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"keys\":null}".getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error", containsString("keys is required")));
+    }
+
 }
