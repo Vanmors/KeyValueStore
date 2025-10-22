@@ -1,0 +1,4 @@
+kvstore:
+  dir: "."
+  memSize: 67108864
+  server.port: 8080
