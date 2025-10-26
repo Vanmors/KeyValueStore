@@ -2,7 +2,6 @@ package dev.kvstore.core.LSM;
 
 import dev.kvstore.core.KVException;
 import dev.kvstore.core.WAL;
-import dev.kvstore.core.WALImpl;
 import dev.kvstore.core.model.*;
 
 import java.io.File;
@@ -31,8 +30,9 @@ public class LSMEngineImpl implements LSMEngine {
     private final ReadWriteLock levelsLock =
             new ReentrantReadWriteLock();
 
-    public LSMEngineImpl(final String dir, final long memSize) throws IOException {
+    public LSMEngineImpl(final String dir, final long memSize, WAL wal) throws IOException {
         this.dir = dir;
+        this.wal = wal;
 
         final var d = new File(dir);
         if (!d.exists() && !d.mkdirs()) {
@@ -40,7 +40,6 @@ public class LSMEngineImpl implements LSMEngine {
         }
         this.memSize = memSize;
         this.memTable = new MemTable(memSize);
-        this.wal = new WALImpl(dir + File.separator + "wal.log");
         replayWAL();
     }
 
@@ -79,25 +78,23 @@ public class LSMEngineImpl implements LSMEngine {
     }
 
     @Override
-    public boolean put(final byte[] key, final byte[] value, final PutOptions options) throws KVException, IOException {
-        final Entry e = new Entry(key, value, false);
-        memTable.set(e);
-        wal.write(e, WALOperationType.PUT);
+    public Entry put(final byte[] key, final byte[] value, final PutOptions options) throws KVException, IOException {
+        final Entry entry = new Entry(key, value, false);
+        memTable.set(entry);
         if (memTable.isFull()) {
             flush();
         }
-        return true;
+        return entry;
     }
 
     @Override
-    public boolean delete(final byte[] key, final DeleteOptions options) throws KVException, IOException {
-        final Entry e = new Entry(key, null, true);
-        memTable.set(e);
-        wal.write(e, WALOperationType.DELETE);
+    public Entry delete(final byte[] key, final DeleteOptions options) throws KVException, IOException {
+        final Entry entry = new Entry(key, null, true);
+        memTable.set(entry);
         if (memTable.isFull()) {
             flush();
         }
-        return true;
+        return entry;
     }
 
     @Override
@@ -125,7 +122,6 @@ public class LSMEngineImpl implements LSMEngine {
 
             levels.computeIfAbsent(0, k -> new ArrayList<>()).add(sstable);
 
-            wal.clear();
             compact();
         } finally {
             levelsLock.writeLock().unlock();
@@ -246,7 +242,6 @@ public class LSMEngineImpl implements LSMEngine {
         // удаляем старые файлы с диска
         removeFiles(inputs);
     }
-
 
     private void replayWAL() throws IOException {
         wal.recover(walEntry -> {

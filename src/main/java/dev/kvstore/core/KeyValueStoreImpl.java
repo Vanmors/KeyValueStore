@@ -7,14 +7,27 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.List;
 
 
 @Service
 public class KeyValueStoreImpl implements KeyValueStore {
     private LSMEngine lsmEngine;
 
-    public KeyValueStoreImpl(@Value("${kvstore.dir}") final String dir, @Value("${kvstore.memSize}") final long memSize) throws IOException {
-        this.lsmEngine = new LSMEngineImpl(dir, memSize);
+    private WAL wal;
+
+    private ReplicationMode replicationMode;
+
+    public KeyValueStoreImpl(@Value("${kvstore.dir}") final String dir,
+                             @Value("${kvstore.memSize}") final long memSize,
+                             @Value("${kvstore.replicationMode}") final String replicationModeStr,
+                             @Value("${kvstore.slaveAddresses}") final List<String> slaveAddresses) throws IOException {
+        this.replicationMode = ReplicationMode.valueOf(replicationModeStr.toUpperCase());
+        if (this.replicationMode == ReplicationMode.MASTER) {
+            this.wal = new WALImpl(dir, replicationModeStr, slaveAddresses);
+        }
+        this.lsmEngine = new LSMEngineImpl(dir, memSize, wal);
+
     }
 
     @Override
@@ -28,19 +41,30 @@ public class KeyValueStoreImpl implements KeyValueStore {
 
     @Override
     public PutResult put(byte[] key, byte[] value, PutOptions options) throws KVException, IOException {
-        final boolean created = lsmEngine.put(key, value, options);
-        return new PutResult(created);
+        if (replicationMode == ReplicationMode.SLAVE) {
+            throw new KVException("Can't put in slave node");
+        }
+        final Entry created = lsmEngine.put(key, value, options);
+        wal.write(created, WALOperationType.PUT);
+        return new PutResult(true);
     }
 
     @Override
     public DeleteResult delete(byte[] key, DeleteOptions options) throws KVException, IOException {
-        final boolean deleted = lsmEngine.delete(key, options);
-        return new DeleteResult(deleted);
+        if (replicationMode == ReplicationMode.SLAVE) {
+            throw new KVException("Can't delete in slave node");
+        }
+        final Entry deleted = lsmEngine.delete(key, options);
+        wal.write(deleted, WALOperationType.DELETE);
+        return new DeleteResult(true);
     }
 
     @Override
     public void flush() throws KVException, IOException {
         lsmEngine.flush();
+        if (wal != null) {
+            wal.clear();
+        }
     }
 
     @Override

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -17,7 +18,7 @@ public class KeyValueStoreImplTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        this.keyValueStore = new KeyValueStoreImpl(".", 10000);
+        this.keyValueStore = new KeyValueStoreImpl(".", 10000, "master", List.of());
     }
 
     @Test
@@ -61,7 +62,7 @@ public class KeyValueStoreImplTest {
         wal.write(entry, WALOperationType.PUT);
         wal.write(entry1, WALOperationType.DELETE);
 
-        this.keyValueStore = new KeyValueStoreImpl(".", 10000);
+        this.keyValueStore = new KeyValueStoreImpl(".", 10000, "master", List.of());
         final var result = keyValueStore.get("hello".getBytes()).value().value();
         final var result1 = keyValueStore.get("foo".getBytes()).value().value();
 

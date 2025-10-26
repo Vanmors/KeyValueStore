@@ -13,15 +13,15 @@ public interface LSMEngine {
         return get(key, ReadOptions.DEFAULT);
     }
 
-    boolean put(byte[] key, byte[] value, PutOptions options) throws KVException, IOException;
+    Entry put(byte[] key, byte[] value, PutOptions options) throws KVException, IOException;
 
-    default boolean put(byte[] key, byte[] value) throws KVException, IOException {
+    default Entry put(byte[] key, byte[] value) throws KVException, IOException {
         return put(key, value, PutOptions.DEFAULT);
     }
 
-    boolean delete(byte[] key, DeleteOptions options) throws KVException, IOException;
+    Entry delete(byte[] key, DeleteOptions options) throws KVException, IOException;
 
-    default boolean delete(byte[] key) throws KVException, IOException {
+    default Entry delete(byte[] key) throws KVException, IOException {
         return delete(key, DeleteOptions.DEFAULT);
     }
 

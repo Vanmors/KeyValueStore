@@ -11,6 +11,7 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
@@ -24,7 +25,7 @@ public class WALImpl implements WAL {
 
     private final AtomicLong id = new AtomicLong(0);
 
-    public WALImpl(final String path) throws IOException {
+    public WALImpl(final String path, final String replicationMode, final List<String> slaveAddresses) throws IOException {
         this.file = new File(path);
         this.fos = new FileOutputStream(file, true);
     }

@@ -1,0 +1,41 @@
+version: '3.8'
+services:
+  master:
+    image: kvstore
+    build: .
+    ports:
+      - "9090:9090"
+    environment:
+      - kvstore.dir=/app/master
+      - kvstore.memSize=100000
+      - kvstore.mode=master
+      - kvstore.slaveAddresses=slave1:9091,slave2:9092
+      - server.port=9090
+    volumes:
+      - ./master-storage:/app/master
+
+  slave1:
+    image: kvstore
+    build: .
+    ports:
+      - "9091:9091"
+    environment:
+      - kvstore.dir=/app/slave1
+      - kvstore.memSize=100000
+      - kvstore.mode=slave
+      - server.port=9091
+    volumes:
+      - ./slave1-storage:/app/slave1
+
+  slave2:
+    image: kvstore
+    build: .
+    ports:
+      - "9092:9092"
+    environment:
+      - kvstore.dir=/app/slave2
+      - kvstore.memSize=100000
+      - kvstore.mode=slave
+      - server.port=9092
+    volumes:
+      - ./slave2-storage:/app/slave2
