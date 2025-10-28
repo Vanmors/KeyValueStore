@@ -244,6 +244,7 @@ public class LSMEngineImpl implements LSMEngine {
     }
 
     private void replayWAL() throws IOException {
+        if (wal == null) return;
         wal.recover(walEntry -> {
             final Entry entry = new Entry(
                     walEntry.key(),

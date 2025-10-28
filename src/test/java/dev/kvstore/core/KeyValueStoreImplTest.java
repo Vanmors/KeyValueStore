@@ -1,6 +1,7 @@
 package dev.kvstore.core;
 
 import dev.kvstore.core.model.Entry;
+import dev.kvstore.core.model.ReplicationMode;
 import dev.kvstore.core.model.WALOperationType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ public class KeyValueStoreImplTest {
 
     @Test
     void recoverEntriesFromWAL() throws KVException, IOException {
-        final WAL wal = new WALImpl("wal.log");
+        final WAL wal = new WALImpl("wal.log", ReplicationMode.MASTER, List.of());
 
         final Entry entry = new Entry("hello".getBytes(), "world".getBytes(), false);
         final Entry entry1 = new Entry("foo".getBytes(), "bar".getBytes(), false);

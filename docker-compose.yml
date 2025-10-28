@@ -8,8 +8,8 @@ services:
     environment:
       - kvstore.dir=/app/master
       - kvstore.memSize=100000
-      - kvstore.mode=master
-      - kvstore.slaveAddresses=slave1:9091,slave2:9092
+      - kvstore.replicationMode=master
+      - kvstore.slaveAddresses=http://slave1:9091,http://slave2:9092
       - server.port=9090
     volumes:
       - ./master-storage:/app/master
@@ -22,7 +22,7 @@ services:
     environment:
       - kvstore.dir=/app/slave1
       - kvstore.memSize=100000
-      - kvstore.mode=slave
+      - kvstore.replicationMode=slave
       - server.port=9091
     volumes:
       - ./slave1-storage:/app/slave1
@@ -35,7 +35,7 @@ services:
     environment:
       - kvstore.dir=/app/slave2
       - kvstore.memSize=100000
-      - kvstore.mode=slave
+      - kvstore.replicationMode=slave
       - server.port=9092
     volumes:
       - ./slave2-storage:/app/slave2

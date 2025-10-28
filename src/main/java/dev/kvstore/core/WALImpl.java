@@ -1,6 +1,7 @@
 package dev.kvstore.core;
 
 import dev.kvstore.core.model.Entry;
+import dev.kvstore.core.model.ReplicationMode;
 import dev.kvstore.core.model.WALEntry;
 import dev.kvstore.core.model.WALOperationType;
 
@@ -25,9 +26,12 @@ public class WALImpl implements WAL {
 
     private final AtomicLong id = new AtomicLong(0);
 
-    public WALImpl(final String path, final String replicationMode, final List<String> slaveAddresses) throws IOException {
+    private final WALReplicator walReplicator;
+
+    public WALImpl(final String path, final ReplicationMode replicationMode, final List<String> slaveAddresses) throws IOException {
         this.file = new File(path);
         this.fos = new FileOutputStream(file, true);
+        this.walReplicator = new WALReplicatorImpl(slaveAddresses, replicationMode);
     }
 
     @Override
@@ -40,6 +44,7 @@ public class WALImpl implements WAL {
                 walOperationType,
                 LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)
         );
+        walReplicator.replicate(walEntry);
         synchronized (lock) {
             final ByteBuffer buffer = serializeEntry(walEntry);
             fos.write(buffer.array());
@@ -98,9 +103,13 @@ public class WALImpl implements WAL {
 
         buffer.putLong(entry.id());
         buffer.putInt(keyLen);
-        if (keyLen > 0) buffer.put(entry.key());
+        if (keyLen > 0) {
+            buffer.put(entry.key());
+        }
         buffer.putInt(valueLen);
-        if (valueLen > 0) buffer.put(entry.value());
+        if (valueLen > 0) {
+            buffer.put(entry.value());
+        }
         buffer.put((byte) (entry.tombstone() ? 1 : 0));
         buffer.put((byte) (entry.operationType() == WALOperationType.PUT ? 0 : 1));
         buffer.putLong(entry.timestamp());

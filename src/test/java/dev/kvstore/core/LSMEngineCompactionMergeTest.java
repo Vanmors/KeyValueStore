@@ -22,7 +22,7 @@ public class LSMEngineCompactionMergeTest {
     @BeforeEach
     void setUp() throws IOException {
         tmp = Files.createTempDirectory("lsm-merge-");
-        engine = new LSMEngineImpl(tmp.toString(), 2_048);
+        engine = new LSMEngineImpl(tmp.toString(), 2_048, null);
     }
 
     @Test

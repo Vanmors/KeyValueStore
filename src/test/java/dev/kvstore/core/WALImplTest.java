@@ -1,6 +1,7 @@
 package dev.kvstore.core;
 
 import dev.kvstore.core.model.Entry;
+import dev.kvstore.core.model.ReplicationMode;
 import dev.kvstore.core.model.WALEntry;
 import dev.kvstore.core.model.WALOperationType;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,7 +20,7 @@ public class WALImplTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        this.wal = new WALImpl("wal.log");
+        this.wal = new WALImpl("wal.log", ReplicationMode.MASTER, List.of());
         wal.clear();
     }
 

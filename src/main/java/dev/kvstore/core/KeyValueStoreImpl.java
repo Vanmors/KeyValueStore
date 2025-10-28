@@ -6,6 +6,7 @@ import dev.kvstore.core.model.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
@@ -23,8 +24,12 @@ public class KeyValueStoreImpl implements KeyValueStore {
                              @Value("${kvstore.replicationMode}") final String replicationModeStr,
                              @Value("${kvstore.slaveAddresses}") final List<String> slaveAddresses) throws IOException {
         this.replicationMode = ReplicationMode.valueOf(replicationModeStr.toUpperCase());
+        final var d = new File(dir);
+        if (!d.exists() && !d.mkdirs()) {
+            throw new IOException("Cannot create data dir: " + dir);
+        }
         if (this.replicationMode == ReplicationMode.MASTER) {
-            this.wal = new WALImpl(dir, replicationModeStr, slaveAddresses);
+            this.wal = new WALImpl(dir + File.separator + "wal.log", replicationMode, slaveAddresses);
         }
         this.lsmEngine = new LSMEngineImpl(dir, memSize, wal);
 
@@ -64,6 +69,14 @@ public class KeyValueStoreImpl implements KeyValueStore {
         lsmEngine.flush();
         if (wal != null) {
             wal.clear();
+        }
+    }
+
+    @Override
+    public void applyReplication(final WALEntry walEntry) throws KVException, IOException {
+        switch (walEntry.operationType()) {
+            case PUT -> lsmEngine.put(walEntry.key(), walEntry.value());
+            case DELETE -> lsmEngine.delete(walEntry.key());
         }
     }
 
