@@ -1,41 +1,41 @@
-version: '3.8'
 services:
   master:
-    image: kvstore
     build: .
+    image: kvstore:local
     ports:
       - "9090:9090"
     environment:
-      - kvstore.dir=/app/master
-      - kvstore.memSize=100000
-      - kvstore.replicationMode=master
-      - kvstore.slaveAddresses=http://slave1:9091,http://slave2:9092
-      - server.port=9090
+      - KVSTORE_DIR=/app/master
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=MASTER
+      - KVSTORE_SLAVEADDRESSES=http://slave1:9091,http://slave2:9092
+      - SERVER_PORT=9090
     volumes:
       - ./master-storage:/app/master
+    depends_on:
+      - slave1
+      - slave2
 
   slave1:
-    image: kvstore
-    build: .
+    image: kvstore:local
     ports:
       - "9091:9091"
     environment:
-      - kvstore.dir=/app/slave1
-      - kvstore.memSize=100000
-      - kvstore.replicationMode=slave
-      - server.port=9091
+      - KVSTORE_DIR=/app/slave1
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=SLAVE
+      - SERVER_PORT=9091
     volumes:
       - ./slave1-storage:/app/slave1
 
   slave2:
-    image: kvstore
-    build: .
+    image: kvstore:local
     ports:
       - "9092:9092"
     environment:
-      - kvstore.dir=/app/slave2
-      - kvstore.memSize=100000
-      - kvstore.replicationMode=slave
-      - server.port=9092
+      - KVSTORE_DIR=/app/slave2
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=SLAVE
+      - SERVER_PORT=9092
     volumes:
       - ./slave2-storage:/app/slave2

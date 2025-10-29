@@ -1,11 +1,5 @@
 package dev.kvstore.core;
 
-import dev.kvstore.core.LSM.LSMEngine;
-import dev.kvstore.core.LSM.LSMEngineImpl;
-import dev.kvstore.core.model.DeleteOptions;
-import dev.kvstore.core.model.PutOptions;
-import dev.kvstore.core.model.ReadOptions;
-import dev.kvstore.core.model.ReplicationMode;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -19,21 +13,15 @@ public class LSMEngineWALRecoveryTest {
     void recoverLatestStateFromWAL() throws Exception {
         var tmp = Files.createTempDirectory("lsm-wal-");
 
-        new WALImpl("wal.log", ReplicationMode.MASTER, List.of());
+        var kv1 = new KeyValueStoreImpl(tmp.toString(), 8_192, "master", List.of());
+        kv1.put("x".getBytes(), "1".getBytes());
+        kv1.put("y".getBytes(), "2".getBytes());
+        kv1.put("x".getBytes(), "3".getBytes());
+        kv1.delete("y".getBytes());
 
-        // первая жизнь процесса
-        LSMEngine e1 = new LSMEngineImpl(tmp.toString(), 8_192, null);
-        e1.put("x".getBytes(), "1".getBytes(), PutOptions.DEFAULT);
-        e1.put("y".getBytes(), "2".getBytes(), PutOptions.DEFAULT);
-        e1.put("x".getBytes(), "3".getBytes(), PutOptions.DEFAULT); // обновили
-        e1.delete("y".getBytes(), DeleteOptions.DEFAULT);           // удалили
-        // имитируем внезапный краш
+        var kv2 = new KeyValueStoreImpl(tmp.toString(), 8_192, "master", List.of());
 
-        // новый инстанс в той же директории
-        LSMEngine e2 = new LSMEngineImpl(tmp.toString(), 8_192, null);
-
-        // x должен быть 3, y отсутствовать
-        assertEquals("3", new String(e2.get("x".getBytes(), ReadOptions.DEFAULT).value()));
-        assertNull(e2.get("y".getBytes(), ReadOptions.DEFAULT));
+        assertEquals("3", new String(kv2.get("x".getBytes()).value().value()));
+        assertNull(kv2.get("y".getBytes()).value().value());
     }
 }

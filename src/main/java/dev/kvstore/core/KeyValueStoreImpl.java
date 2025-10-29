@@ -8,40 +8,51 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.AbstractMap;
 import java.util.List;
-
+import java.util.Map;
 
 @Service
 public class KeyValueStoreImpl implements KeyValueStore {
-    private LSMEngine lsmEngine;
 
-    private WAL wal;
-
-    private ReplicationMode replicationMode;
+    private final LSMEngine lsmEngine;
+    private final WAL wal;
+    private final ReplicationMode replicationMode;
 
     public KeyValueStoreImpl(@Value("${kvstore.dir}") final String dir,
                              @Value("${kvstore.memSize}") final long memSize,
                              @Value("${kvstore.replicationMode}") final String replicationModeStr,
                              @Value("${kvstore.slaveAddresses}") final List<String> slaveAddresses) throws IOException {
         this.replicationMode = ReplicationMode.valueOf(replicationModeStr.toUpperCase());
+
         final var d = new File(dir);
         if (!d.exists() && !d.mkdirs()) {
             throw new IOException("Cannot create data dir: " + dir);
         }
-        if (this.replicationMode == ReplicationMode.MASTER) {
-            this.wal = new WALImpl(dir + File.separator + "wal.log", replicationMode, slaveAddresses);
-        }
-        this.lsmEngine = new LSMEngineImpl(dir, memSize, wal);
 
+        WAL walTmp = null;
+        if (this.replicationMode == ReplicationMode.MASTER) {
+            walTmp = new WALImpl(dir + File.separator + "wal.log", replicationMode, slaveAddresses);
+        }
+        this.wal = walTmp;
+
+        this.lsmEngine = new LSMEngineImpl(dir, memSize, wal);
+    }
+
+    /**
+     * Сейчас заглушка. При интеграции с Raft сюда подставится commitIndex.
+     */
+    private long currentVersion(byte[] key) {
+        return 0L;
     }
 
     @Override
     public GetResult get(byte[] key, ReadOptions options) throws KVException, IOException {
-        final Entry entry = lsmEngine.get(key, options);
-        if (entry != null) {
-            return new GetResult(true, new ValueRecord(entry.value(), 0, 0L));
+        final var e = lsmEngine.get(key, options);
+        if (e == null || e.tombstone()) {
+            return new GetResult(false, new ValueRecord(null, currentVersion(key), null));
         }
-        return new GetResult(true, new ValueRecord(null, 0, 0L));
+        return new GetResult(true, new ValueRecord(e.value(), currentVersion(key), null));
     }
 
     @Override
@@ -50,7 +61,9 @@ public class KeyValueStoreImpl implements KeyValueStore {
             throw new KVException("Can't put in slave node");
         }
         final Entry created = lsmEngine.put(key, value, options);
-        wal.write(created, WALOperationType.PUT);
+        if (wal != null) {
+            wal.write(created, WALOperationType.PUT);
+        }
         return new PutResult(true);
     }
 
@@ -60,7 +73,9 @@ public class KeyValueStoreImpl implements KeyValueStore {
             throw new KVException("Can't delete in slave node");
         }
         final Entry deleted = lsmEngine.delete(key, options);
-        wal.write(deleted, WALOperationType.DELETE);
+        if (wal != null) {
+            wal.write(deleted, WALOperationType.DELETE);
+        }
         return new DeleteResult(true);
     }
 
@@ -82,7 +97,30 @@ public class KeyValueStoreImpl implements KeyValueStore {
 
     @Override
     public ScanCursor scan(KeyRange range, ReadOptions options) throws KVException {
-        return null;
-    }
+        final ScanCursor delegate = lsmEngine.scan(range, options);
+        return new ScanCursor() {
+            @Override
+            public boolean hasNext() {
+                return delegate.hasNext();
+            }
 
+            @Override
+            public Map.Entry<byte[], ValueRecord> next() {
+                final var e = delegate.next();
+                final var key = e.getKey();
+                final var vr = e.getValue();
+                final var valueBytes = (vr == null) ? null : vr.value();
+                final var expire = (vr == null) ? null : vr.expireAtMillis();
+                return new AbstractMap.SimpleEntry<>(
+                        key,
+                        new ValueRecord(valueBytes, currentVersion(key), expire)
+                );
+            }
+
+            @Override
+            public void close() {
+                delegate.close();
+            }
+        };
+    }
 }

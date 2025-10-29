@@ -99,7 +99,62 @@ public class LSMEngineImpl implements LSMEngine {
 
     @Override
     public ScanCursor scan(KeyRange range, ReadOptions options) throws KVException {
-        return null;
+        try {
+            Comparator<byte[]> BYTES = java.util.Arrays::compare;
+            var latest = new java.util.TreeMap<byte[], Entry>(BYTES);
+
+            var memSnap = memTable.snapshot();
+            for (var e : memSnap.values()) {
+                latest.put(e.key(), e);
+            }
+
+            var allTables = new java.util.ArrayList<SSTable>();
+            levelsLock.readLock().lock();
+            try {
+                for (var lv : levels.values()) {
+                    allTables.addAll(lv);
+                }
+            } finally {
+                levelsLock.readLock().unlock();
+            }
+            allTables.sort(java.util.Comparator.comparingLong(SSTable::createdAtMillis).reversed());
+
+            for (var sst : allTables) {
+                for (var e : sst.getAllEntries()) {
+                    latest.putIfAbsent(e.key(), e);
+                }
+            }
+
+            latest.values().removeIf(Entry::tombstone);
+
+            var list = new java.util.ArrayList<java.util.Map.Entry<byte[], ValueRecord>>(latest.size());
+            for (var me : latest.entrySet()) {
+                var e = me.getValue();
+                list.add(new java.util.AbstractMap.SimpleEntry<>(
+                        me.getKey(),
+                        ValueRecord.of(e.value(), 0L) // версия пока 0L
+                ));
+            }
+            var it = list.iterator();
+
+            return new ScanCursor() {
+                @Override
+                public boolean hasNext() {
+                    return it.hasNext();
+                }
+
+                @Override
+                public java.util.Map.Entry<byte[], ValueRecord> next() {
+                    return it.next();
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+        } catch (Exception ex) {
+            throw new KVException(ex.getMessage(), ex);
+        }
     }
 
     @Override

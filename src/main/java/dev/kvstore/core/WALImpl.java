@@ -44,12 +44,13 @@ public class WALImpl implements WAL {
                 walOperationType,
                 LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)
         );
-        walReplicator.replicate(walEntry);
         synchronized (lock) {
             final ByteBuffer buffer = serializeEntry(walEntry);
             fos.write(buffer.array());
             fos.flush();
+            fos.getFD().sync();
         }
+        walReplicator.replicate(walEntry);
     }
 
     @Override
