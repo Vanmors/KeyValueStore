@@ -224,8 +224,12 @@ public class KVStoreController {
 
     @PostMapping("/replicate")
     public ResponseEntity<Map<String, Object>> replicate(@RequestBody final WALEntry walEntry) throws KVException, IOException {
-        keyValueStore.applyReplication(walEntry);
-        return ResponseEntity.ok(Map.of());
+        try {
+            keyValueStore.applyReplication(walEntry);
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (final Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", e.getMessage()));
+        }
     }
 
 }
