@@ -5,6 +5,7 @@ import dev.kvstore.core.LSM.LSMEngineImpl;
 import dev.kvstore.core.model.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.io.File;
 import java.io.IOException;
@@ -18,12 +19,15 @@ public class KeyValueStoreImpl implements KeyValueStore {
     private final LSMEngine lsmEngine;
     private final WAL wal;
     private final ReplicationMode replicationMode;
+    private final org.springframework.beans.factory.ObjectProvider<dev.kvstore.raft.RaftService> raftProvider;
 
     public KeyValueStoreImpl(@Value("${kvstore.dir}") final String dir,
                              @Value("${kvstore.memSize}") final long memSize,
                              @Value("${kvstore.replicationMode}") final String replicationModeStr,
-                             @Value("${kvstore.slaveAddresses}") final List<String> slaveAddresses) throws IOException {
+                             @Value("${kvstore.slaveAddresses}") final List<String> slaveAddresses,
+                             org.springframework.beans.factory.ObjectProvider<dev.kvstore.raft.RaftService> raftProvider) throws IOException {
         this.replicationMode = ReplicationMode.valueOf(replicationModeStr.toUpperCase());
+        this.raftProvider = raftProvider;
 
         final var d = new File(dir);
         if (!d.exists() && !d.mkdirs()) {
@@ -33,6 +37,8 @@ public class KeyValueStoreImpl implements KeyValueStore {
         WAL walTmp = null;
         if (this.replicationMode == ReplicationMode.MASTER) {
             walTmp = new WALImpl(dir + File.separator + "wal.log", replicationMode, slaveAddresses);
+        } else if (this.replicationMode == ReplicationMode.RAFT) {
+            walTmp = new WALImpl(dir + File.separator + "wal.log", ReplicationMode.SLAVE, List.of());
         }
         this.wal = walTmp;
 
@@ -40,9 +46,15 @@ public class KeyValueStoreImpl implements KeyValueStore {
     }
 
     /**
-     * Сейчас заглушка. При интеграции с Raft сюда подставится commitIndex.
+     * Версия - это Raft commitIndex.
      */
     private long currentVersion(byte[] key) {
+        if (replicationMode == ReplicationMode.RAFT) {
+            var raft = raftProvider.getIfAvailable();
+            if (raft != null && raft.isEnabled()) {
+                return raft.commitIndex();
+            }
+        }
         return 0L;
     }
 
@@ -61,9 +73,7 @@ public class KeyValueStoreImpl implements KeyValueStore {
             throw new KVException("Can't put in slave node");
         }
         final Entry created = lsmEngine.put(key, value, options);
-        if (wal != null) {
-            wal.write(created, WALOperationType.PUT);
-        }
+        if (wal != null) wal.write(created, WALOperationType.PUT);
         return new PutResult(true);
     }
 
@@ -73,9 +83,7 @@ public class KeyValueStoreImpl implements KeyValueStore {
             throw new KVException("Can't delete in slave node");
         }
         final Entry deleted = lsmEngine.delete(key, options);
-        if (wal != null) {
-            wal.write(deleted, WALOperationType.DELETE);
-        }
+        if (wal != null) wal.write(deleted, WALOperationType.DELETE);
         return new DeleteResult(true);
     }
 

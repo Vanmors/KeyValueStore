@@ -4,6 +4,8 @@ import dev.kvstore.controller.request.*;
 import dev.kvstore.core.KVException;
 import dev.kvstore.core.KeyValueStore;
 import dev.kvstore.core.model.*;
+import dev.kvstore.raft.RaftService;
+import dev.kvstore.raft.RaftRpc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,9 +32,12 @@ public class KVStoreController {
     private KeyValueStore keyValueStore;
 
     private final String replicationMode;
+    private final RaftService raft;
 
-    public KVStoreController(@Value("${kvstore.replicationMode}") final String replicationMode) {
+    public KVStoreController(@Value("${kvstore.replicationMode}") final String replicationMode,
+                             RaftService raft) {
         this.replicationMode = replicationMode;
+        this.raft = raft;
     }
 
     @PostConstruct
@@ -46,7 +51,15 @@ public class KVStoreController {
     @GetMapping("mode")
     public ResponseEntity<Map<String, Object>> getReplicationMode() {
         log.debug("[MODE] GET /mode -> {}", replicationMode);
-        return ResponseEntity.ok(Map.of("replicationMode", replicationMode));
+        var out = new java.util.LinkedHashMap<String, Object>();
+        out.put("replicationMode", replicationMode);
+        if (raft != null && raft.isEnabled()) {
+            out.put("raftRole", raft.isLeader() ? "LEADER" : "FOLLOWER/CANDIDATE");
+            out.put("raftTerm", raft.term());
+            out.put("raftLeader", raft.leaderId());
+            out.put("commitIndex", raft.commitIndex());
+        }
+        return ResponseEntity.ok(out);
     }
 
     @GetMapping("/get")
@@ -128,6 +141,25 @@ public class KVStoreController {
                 return ResponseEntity.badRequest().body(Map.of("error", "key and value are required"));
             }
 
+            if ("RAFT".equalsIgnoreCase(replicationMode)) {
+                if (raft.isLeader()) {
+                    boolean ok = raft.clientPut(request.key().getBytes(StandardCharsets.UTF_8),
+                            request.value().getBytes(StandardCharsets.UTF_8));
+                    if (!ok) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                            .body(Map.of("error", "replication_failed"));
+                    return ResponseEntity.ok(Map.of("success", true, "created", true));
+                } else {
+                    var loc = raft.leaderRedirectUrl("/kvstore/put");
+                    if (loc.isPresent()) {
+                        return ResponseEntity.status(HttpStatus.TEMPORARY_REDIRECT)
+                                .header("Location", loc.get())
+                                .body(Map.of("error", "not_leader", "leader", raft.leaderId()));
+                    }
+                    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                            .body(Map.of("error", "no_leader"));
+                }
+            }
+            // MASTER/SLAVE - старое поведение:
             final PutResult result = keyValueStore.put(
                     request.key().getBytes(StandardCharsets.UTF_8),
                     request.value().getBytes(StandardCharsets.UTF_8)
@@ -149,6 +181,23 @@ public class KVStoreController {
             log.debug("[DELETE] key='{}'", safeKey(request == null ? null : request.key()));
             if (request == null || request.key() == null || request.key().isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "key is required"));
+            }
+            if ("RAFT".equalsIgnoreCase(replicationMode)) {
+                if (raft.isLeader()) {
+                    boolean ok = raft.clientDelete(request.key().getBytes(StandardCharsets.UTF_8));
+                    if (!ok) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                            .body(Map.of("error", "replication_failed"));
+                    return ResponseEntity.ok(Map.of("success", true));
+                } else {
+                    var loc = raft.leaderRedirectUrl("/kvstore/delete");
+                    if (loc.isPresent()) {
+                        return ResponseEntity.status(HttpStatus.TEMPORARY_REDIRECT)
+                                .header("Location", loc.get())
+                                .body(Map.of("error", "not_leader", "leader", raft.leaderId()));
+                    }
+                    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                            .body(Map.of("error", "no_leader"));
+                }
             }
             final DeleteResult result = keyValueStore.delete(request.key().getBytes(StandardCharsets.UTF_8));
             log.info("[DELETE] key='{}' deleted={}", safeKey(request.key()), result.deleted());
@@ -208,6 +257,16 @@ public class KVStoreController {
         } finally {
             log.debug("[MPUT] done in {}", Duration.between(t0, Instant.now()));
         }
+    }
+
+    @PostMapping("/raft/request-vote")
+    public RaftRpc.RequestVoteResponse requestVote(@RequestBody RaftRpc.RequestVoteRequest body) {
+        return raft.onRequestVote(body);
+    }
+
+    @PostMapping("/raft/append-entries")
+    public RaftRpc.AppendEntriesResponse appendEntries(@RequestBody RaftRpc.AppendEntriesRequest body) {
+        return raft.onAppendEntries(body);
     }
 
     @PostMapping("/mget")
