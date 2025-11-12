@@ -15,6 +15,7 @@
         <jmh.version>1.37</jmh.version>
         <protobuf.version>4.28.2</protobuf.version>
         <spring.version>3.5.6</spring.version>
+        <guava.version>33.5.0-jre</guava.version>
     </properties>
 
     <dependencyManagement>
@@ -61,6 +62,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
             <version>${spring.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>${guava.version}</version>
         </dependency>
     </dependencies>
 
