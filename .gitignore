@@ -5,6 +5,7 @@ target/
 
 *.sstable
 *.log
+*.meta
 
 ### IntelliJ IDEA ###
 .idea/modules.xml

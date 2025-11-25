@@ -1,4 +1,4 @@
-package dev.kvstore.hashing;
+package dev.kvstore.sharding;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;

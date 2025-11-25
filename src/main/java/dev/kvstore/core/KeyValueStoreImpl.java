@@ -3,31 +3,51 @@ package dev.kvstore.core;
 import dev.kvstore.core.LSM.LSMEngine;
 import dev.kvstore.core.LSM.LSMEngineImpl;
 import dev.kvstore.core.model.*;
+import dev.kvstore.raft.RaftService;
+import dev.kvstore.sharding.ShardInfo;
+import dev.kvstore.sharding.ShardingClient;
+import dev.kvstore.sharding.ShardingService;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.ObjectProvider;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.AbstractMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
 
 @Service
 public class KeyValueStoreImpl implements KeyValueStore {
 
     private final LSMEngine lsmEngine;
+
     private final WAL wal;
+
     private final ReplicationMode replicationMode;
-    private final org.springframework.beans.factory.ObjectProvider<dev.kvstore.raft.RaftService> raftProvider;
+
+    private final ObjectProvider<RaftService> raftProvider;
+
+    private final String myAddress;
+
+    @Autowired
+    private ShardingClient shardingClient;
+
+    @Autowired
+    private ShardingService shardingService;
 
     public KeyValueStoreImpl(@Value("${kvstore.dir}") final String dir,
                              @Value("${kvstore.memSize}") final long memSize,
                              @Value("${kvstore.replicationMode}") final String replicationModeStr,
                              @Value("${kvstore.slaveAddresses}") final List<String> slaveAddresses,
-                             org.springframework.beans.factory.ObjectProvider<dev.kvstore.raft.RaftService> raftProvider) throws IOException {
+                             @Value("${cluster.shard-id}") final String nodeId,
+                             final ObjectProvider<RaftService> raftProvider) throws IOException {
         this.replicationMode = ReplicationMode.valueOf(replicationModeStr.toUpperCase());
         this.raftProvider = raftProvider;
+        this.myAddress = nodeId;
 
         final var d = new File(dir);
         if (!d.exists() && !d.mkdirs()) {
@@ -48,9 +68,9 @@ public class KeyValueStoreImpl implements KeyValueStore {
     /**
      * Версия - это Raft commitIndex.
      */
-    private long currentVersion(byte[] key) {
+    private long currentVersion(final byte[] key) {
         if (replicationMode == ReplicationMode.RAFT) {
-            var raft = raftProvider.getIfAvailable();
+            final var raft = raftProvider.getIfAvailable();
             if (raft != null && raft.isEnabled()) {
                 return raft.commitIndex();
             }
@@ -59,31 +79,71 @@ public class KeyValueStoreImpl implements KeyValueStore {
     }
 
     @Override
-    public GetResult get(byte[] key, ReadOptions options) throws KVException, IOException {
-        final var e = lsmEngine.get(key, options);
-        if (e == null || e.tombstone()) {
-            return new GetResult(false, new ValueRecord(null, currentVersion(key), null));
+    public GetResult get(final byte[] key, final ReadOptions options) throws KVException, IOException {
+        final String shardId = shardingService.getNode(key);
+
+        if (shardId.equals(myAddress)) {
+            final var e = lsmEngine.get(key, options);
+            if (e == null || e.tombstone()) {
+                return new GetResult(false, new ValueRecord(null, currentVersion(key), null));
+            }
+            return new GetResult(true, new ValueRecord(e.value(), currentVersion(key), null));
         }
-        return new GetResult(true, new ValueRecord(e.value(), currentVersion(key), null));
+
+        final String targetNode = getAnyLiveNode(shardId);
+
+        // Читаем с другого узла
+        final byte[] valueBytes = shardingClient.get(targetNode, key);
+        return new GetResult(valueBytes != null, new ValueRecord(valueBytes, 0L, null));
     }
 
     @Override
-    public PutResult put(byte[] key, byte[] value, PutOptions options) throws KVException, IOException {
+    public PutResult put(final byte[] key, final byte[] value, final PutOptions options) throws KVException, IOException {
         if (replicationMode == ReplicationMode.SLAVE) {
             throw new KVException("Can't put in slave node");
         }
-        final Entry created = lsmEngine.put(key, value, options);
-        if (wal != null) wal.write(created, WALOperationType.PUT);
-        return new PutResult(true);
+        final String shardId = shardingService.getNode(key);
+
+        // Если это наш узел — пишем локально
+        if (shardId.equals(myAddress)) {
+            final Entry created = lsmEngine.put(key, value, options);
+            if (wal != null) {
+                wal.write(created, WALOperationType.PUT);
+            }
+            return new PutResult(true);
+        }
+
+        final String targetNode = getAnyLiveNode(shardId);
+
+        // Иначе — отправляем на нужный узел
+        final boolean success = shardingClient.put(targetNode, key, value);
+        return new PutResult(success);
+    }
+
+    private String getAnyLiveNode(final String shardId) throws KVException {
+        final ShardInfo shard = shardingService.getAliveMembers(shardId);
+
+//        for (final String addr : members) {
+//            if (isAlive(addr)) {  // простой healthcheck: GET /health
+//                return addr;
+//            }
+//        }
+        if (shard != null) {
+            final List<String> members = new ArrayList<>(shard.members());
+            return members.get(0);
+        }
+        throw new KVException("No live nodes in shard " + shardId);
     }
 
     @Override
-    public DeleteResult delete(byte[] key, DeleteOptions options) throws KVException, IOException {
+    public DeleteResult delete(final byte[] key, final DeleteOptions options) throws KVException, IOException {
         if (replicationMode == ReplicationMode.SLAVE) {
             throw new KVException("Can't delete in slave node");
         }
         final Entry deleted = lsmEngine.delete(key, options);
-        if (wal != null) wal.write(deleted, WALOperationType.DELETE);
+        if (wal != null) {
+            wal.write(deleted, WALOperationType.DELETE);
+        }
         return new DeleteResult(true);
     }
 
@@ -104,7 +164,7 @@ public class KeyValueStoreImpl implements KeyValueStore {
     }
 
     @Override
-    public ScanCursor scan(KeyRange range, ReadOptions options) throws KVException {
+    public ScanCursor scan(final KeyRange range, final ReadOptions options) throws KVException {
         final ScanCursor delegate = lsmEngine.scan(range, options);
         return new ScanCursor() {
             @Override

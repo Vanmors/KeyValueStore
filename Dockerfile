@@ -5,7 +5,8 @@ RUN mvn -q -DskipTests dependency:go-offline
 COPY src ./src
 RUN mvn -q -DskipTests package
 
-FROM openjdk:21-jdk-slim
+# FROM openjdk:21-jdk-slim
+FROM eclipse-temurin:21-jdk
 WORKDIR /app
 COPY --from=build /src/target/*.jar /app/app.jar
 ENTRYPOINT ["java","-jar","/app/app.jar"]

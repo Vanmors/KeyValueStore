@@ -14,6 +14,7 @@ services:
       - KVSTORE_RAFT_ELECTIONMINMS=900
       - KVSTORE_RAFT_ELECTIONMAXMS=1800
       - SERVER_PORT=9090
+      - CLUSTER_SHARD_ID = shard1
     volumes: [ "./node1-storage:/data" ]
     networks: [ kvnet ]
 
@@ -31,6 +32,7 @@ services:
       - KVSTORE_RAFT_ELECTIONMINMS=900
       - KVSTORE_RAFT_ELECTIONMAXMS=1800
       - SERVER_PORT=9091
+      - CLUSTER_SHARD_ID = shard1
     volumes: [ "./node2-storage:/data" ]
     networks: [ kvnet ]
 
@@ -48,7 +50,63 @@ services:
       - KVSTORE_RAFT_ELECTIONMINMS=900
       - KVSTORE_RAFT_ELECTIONMAXMS=1800
       - SERVER_PORT=9092
+      - CLUSTER_SHARD_ID = shard1
     volumes: [ "./node3-storage:/data" ]
+    networks: [ kvnet ]
+
+  node4:
+    build: .
+    image: kvstore:local
+    container_name: kvstore-node4
+    ports: [ "9093:9093" ]
+    environment:
+      - KVSTORE_DIR=/data
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=RAFT
+      - KVSTORE_NODEID=http://localhost:9093
+      - KVSTORE_PEERADDRESSES=http://node2:9094,http://node3:9095
+      - KVSTORE_RAFT_HEARTBEATMS=150
+      - KVSTORE_RAFT_ELECTIONMINMS=900
+      - KVSTORE_RAFT_ELECTIONMAXMS=1800
+      - SERVER_PORT=9093
+      - CLUSTER_SHARD_ID = shard2
+    volumes: [ "./node4-storage:/data" ]
+    networks: [ kvnet ]
+
+  node5:
+    image: kvstore:local
+    container_name: kvstore-node5
+    ports: [ "9094:9094" ]
+    environment:
+      - KVSTORE_DIR=/data
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=RAFT
+      - KVSTORE_NODEID=http://localhost:9094
+      - KVSTORE_PEERADDRESSES=http://node1:9093,http://node3:9095
+      - KVSTORE_RAFT_HEARTBEATMS=150
+      - KVSTORE_RAFT_ELECTIONMINMS=900
+      - KVSTORE_RAFT_ELECTIONMAXMS=1800
+      - SERVER_PORT=9094
+      - CLUSTER_SHARD_ID = shard2
+    volumes: [ "./node5-storage:/data" ]
+    networks: [ kvnet ]
+
+  node6:
+    image: kvstore:local
+    container_name: kvstore-node6
+    ports: [ "9095:9095" ]
+    environment:
+      - KVSTORE_DIR=/data
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=RAFT
+      - KVSTORE_NODEID=http://localhost:9095
+      - KVSTORE_PEERADDRESSES=http://node1:9093,http://node2:9094
+      - KVSTORE_RAFT_HEARTBEATMS=150
+      - KVSTORE_RAFT_ELECTIONMINMS=900
+      - KVSTORE_RAFT_ELECTIONMAXMS=1800
+      - SERVER_PORT=9095
+      - CLUSTER_SHARD_ID = shard2
+    volumes: [ "./node6-storage:/data" ]
     networks: [ kvnet ]
 
 networks:
