@@ -1,113 +1,120 @@
+x-kv-env: &kv-env
+  SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/application.properties
+  KVSTORE_REPLICATIONMODE: RAFT
+  KVSTORE_DIR: /data
+  KVSTORE_MEMSIZE: "100000"
+
+x-kv-common: &kv-common
+  image: eclipse-temurin:21-jre
+  restart: unless-stopped
+  command: [ "java","-jar","/app/kvstore.jar" ]
+  networks: [ kvnet ]
+
 services:
   node1:
-    build: .
-    image: kvstore
-    container_name: kvstore-node1
-    ports: [ "9090:9090" ]
+    <<: *kv-common
+    container_name: node1
     environment:
-      - KVSTORE_DIR=/data
-      - KVSTORE_MEMSIZE=100000
-      - KVSTORE_REPLICATIONMODE=RAFT
-      - KVSTORE_NODEID=http://localhost:9090
-      - KVSTORE_PEERADDRESSES=http://node2:9091,http://node3:9092
-      - KVSTORE_RAFT_HEARTBEATMS=150
-      - KVSTORE_RAFT_ELECTIONMINMS=900
-      - KVSTORE_RAFT_ELECTIONMAXMS=1800
-      - SERVER_PORT=9090
-      - CLUSTER_SHARD_ID = shard1
-    volumes: [ "./node1-storage:/data" ]
-    networks: [ kvnet ]
+      <<: *kv-env
+      SERVER_PORT: 9090
+      KVSTORE_NODEID: http://node1:9090
+      KVSTORE_PEERADDRESSES: http://node2:9091,http://node3:9092
+      CLUSTER_SHARD_ID: shard-1
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node1-data:/data
+    ports: [ "9090:9090" ]
 
   node2:
-    image: kvstore
-    container_name: kvstore-node2
-    ports: [ "9091:9091" ]
+    <<: *kv-common
+    container_name: node2
     environment:
-      - KVSTORE_DIR=/data
-      - KVSTORE_MEMSIZE=100000
-      - KVSTORE_REPLICATIONMODE=RAFT
-      - KVSTORE_NODEID=http://localhost:9091
-      - KVSTORE_PEERADDRESSES=http://node1:9090,http://node3:9092
-      - KVSTORE_RAFT_HEARTBEATMS=150
-      - KVSTORE_RAFT_ELECTIONMINMS=900
-      - KVSTORE_RAFT_ELECTIONMAXMS=1800
-      - SERVER_PORT=9091
-      - CLUSTER_SHARD_ID = shard1
-    volumes: [ "./node2-storage:/data" ]
-    networks: [ kvnet ]
+      <<: *kv-env
+      SERVER_PORT: 9091
+      KVSTORE_NODEID: http://node2:9091
+      KVSTORE_PEERADDRESSES: http://node1:9090,http://node3:9092
+      CLUSTER_SHARD_ID: shard-1
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node2-data:/data
+    ports: [ "9091:9091" ]
 
   node3:
-    image: kvstore
-    container_name: kvstore-node3
-    ports: [ "9092:9092" ]
+    <<: *kv-common
+    container_name: node3
     environment:
-      - KVSTORE_DIR=/data
-      - KVSTORE_MEMSIZE=100000
-      - KVSTORE_REPLICATIONMODE=RAFT
-      - KVSTORE_NODEID=http://localhost:9092
-      - KVSTORE_PEERADDRESSES=http://node1:9090,http://node2:9091
-      - KVSTORE_RAFT_HEARTBEATMS=150
-      - KVSTORE_RAFT_ELECTIONMINMS=900
-      - KVSTORE_RAFT_ELECTIONMAXMS=1800
-      - SERVER_PORT=9092
-      - CLUSTER_SHARD_ID = shard1
-    volumes: [ "./node3-storage:/data" ]
-    networks: [ kvnet ]
+      <<: *kv-env
+      SERVER_PORT: 9092
+      KVSTORE_NODEID: http://node3:9092
+      KVSTORE_PEERADDRESSES: http://node1:9090,http://node2:9091
+      CLUSTER_SHARD_ID: shard-1
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node3-data:/data
+    ports: [ "9092:9092" ]
 
   node4:
-    build: .
-    image: kvstore
-    container_name: kvstore-node4
-    ports: [ "9093:9093" ]
+    <<: *kv-common
+    container_name: node4
     environment:
-      - KVSTORE_DIR=/data
-      - KVSTORE_MEMSIZE=100000
-      - KVSTORE_REPLICATIONMODE=RAFT
-      - KVSTORE_NODEID=http://localhost:9093
-      - KVSTORE_PEERADDRESSES=http://node2:9094,http://node3:9095
-      - KVSTORE_RAFT_HEARTBEATMS=150
-      - KVSTORE_RAFT_ELECTIONMINMS=900
-      - KVSTORE_RAFT_ELECTIONMAXMS=1800
-      - SERVER_PORT=9093
-      - CLUSTER_SHARD_ID = shard2
-    volumes: [ "./node4-storage:/data" ]
-    networks: [ kvnet ]
+      <<: *kv-env
+      SERVER_PORT: 9093
+      KVSTORE_NODEID: http://node4:9093
+      KVSTORE_PEERADDRESSES: http://node5:9094,http://node6:9095
+      CLUSTER_SHARD_ID: shard-2
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node4-data:/data
+    ports: [ "9093:9093" ]
 
   node5:
-    image: kvstore
-    container_name: kvstore-node5
-    ports: [ "9094:9094" ]
+    <<: *kv-common
+    container_name: node5
     environment:
-      - KVSTORE_DIR=/data
-      - KVSTORE_MEMSIZE=100000
-      - KVSTORE_REPLICATIONMODE=RAFT
-      - KVSTORE_NODEID=http://localhost:9094
-      - KVSTORE_PEERADDRESSES=http://node1:9093,http://node3:9095
-      - KVSTORE_RAFT_HEARTBEATMS=150
-      - KVSTORE_RAFT_ELECTIONMINMS=900
-      - KVSTORE_RAFT_ELECTIONMAXMS=1800
-      - SERVER_PORT=9094
-      - CLUSTER_SHARD_ID = shard2
-    volumes: [ "./node5-storage:/data" ]
-    networks: [ kvnet ]
+      <<: *kv-env
+      SERVER_PORT: 9094
+      KVSTORE_NODEID: http://node5:9094
+      KVSTORE_PEERADDRESSES: http://node4:9093,http://node6:9095
+      CLUSTER_SHARD_ID: shard-2
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node5-data:/data
+    ports: [ "9094:9094" ]
 
   node6:
-    image: kvstore
-    container_name: kvstore-node6
-    ports: [ "9095:9095" ]
+    <<: *kv-common
+    container_name: node6
     environment:
-      - KVSTORE_DIR=/data
-      - KVSTORE_MEMSIZE=100000
-      - KVSTORE_REPLICATIONMODE=RAFT
-      - KVSTORE_NODEID=http://localhost:9095
-      - KVSTORE_PEERADDRESSES=http://node1:9093,http://node2:9094
-      - KVSTORE_RAFT_HEARTBEATMS=150
-      - KVSTORE_RAFT_ELECTIONMINMS=900
-      - KVSTORE_RAFT_ELECTIONMAXMS=1800
-      - SERVER_PORT=9095
-      - CLUSTER_SHARD_ID = shard2
-    volumes: [ "./node6-storage:/data" ]
-    networks: [ kvnet ]
+      <<: *kv-env
+      SERVER_PORT: 9095
+      KVSTORE_NODEID: http://node6:9095
+      KVSTORE_PEERADDRESSES: http://node4:9093,http://node5:9094
+      CLUSTER_SHARD_ID: shard-2
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node6-data:/data
+    ports: [ "9095:9095" ]
 
 networks:
   kvnet:
+    driver: bridge
+
+volumes:
+  node1-data: { }
+  node2-data: { }
+  node3-data: { }
+  node4-data: { }
+  node5-data: { }
+  node6-data: { }

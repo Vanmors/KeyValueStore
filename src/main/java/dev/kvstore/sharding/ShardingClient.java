@@ -7,94 +7,156 @@ import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
-import java.util.Base64;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
-
 
 @Component
 public class ShardingClient {
 
-    private final RestTemplate restTemplate = new RestTemplate();
-
     private static final Logger log = LoggerFactory.getLogger(ShardingClient.class);
-
     private static final String BASE_PATH = "/kvstore";
 
-    public byte[] get(final String nodeAddress, final byte[] key) {  // nodeAddress = "node4:9093"
-        final String base64Key = Base64.getEncoder().encodeToString(key);
-        final String url = "http://" + nodeAddress + BASE_PATH + "/get?key=" + base64Key;
+    private static final ParameterizedTypeReference<Map<String, Object>> MAP_TYPE =
+            new ParameterizedTypeReference<>() {
+            };
+
+    private final RestTemplate http;
+    private final RestTemplate health;
+
+    public ShardingClient() {
+        this.http = build(2500, 5000);
+        this.health = build(800, 1200);
+    }
+
+    private RestTemplate build(int connectTimeoutMs, int readTimeoutMs) {
+        var f = new SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(connectTimeoutMs);
+        f.setReadTimeout(readTimeoutMs);
+        return new RestTemplate(f);
+    }
+
+    private static String baseUrl(String nodeAddress) {
+        if (nodeAddress.startsWith("http://") || nodeAddress.startsWith("https://")) {
+            return nodeAddress;
+        }
+        return "http://" + nodeAddress;
+    }
+
+    public boolean isAlive(final String nodeAddress) {
+        final String node = baseUrl(nodeAddress);
+        final String[] probes = new String[]{
+                node + "/health",
+                node + BASE_PATH + "/health"
+        };
+        for (String url : probes) {
+            try {
+                ResponseEntity<String> r = health.exchange(url, HttpMethod.GET, null, String.class);
+                if (r.getStatusCode().is2xxSuccessful()) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        log.debug("Node {} is DOWN", nodeAddress);
+        return false;
+    }
+
+    public byte[] get(final String nodeAddress, final byte[] key) {
+        final String node = baseUrl(nodeAddress);
+
+        final String url = UriComponentsBuilder
+                .fromHttpUrl(node)
+                .path(BASE_PATH + "/get")
+                .queryParam("key", new String(key, StandardCharsets.UTF_8))
+                .build()
+                .encode()
+                .toUriString();
 
         try {
-            final ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    null,
-                    new ParameterizedTypeReference<Map<String, Object>>() {
-                    }
-            );
+            ResponseEntity<Map<String, Object>> resp =
+                    http.exchange(url, HttpMethod.GET, null, MAP_TYPE);
 
-            if (response.getStatusCode() == HttpStatus.OK) {
-                final Map<String, Object> body = response.getBody();
-                if (body != null && body.containsKey("value")) {
-                    final String base64Value = (String) body.get("value");
-                    return Base64.getDecoder().decode(base64Value);
+            if (resp.getStatusCode().is3xxRedirection() && resp.getHeaders().getLocation() != null) {
+                URI loc = resp.getHeaders().getLocation();
+                resp = http.exchange(loc, HttpMethod.GET, null, MAP_TYPE);
+            }
+
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                Object val = resp.getBody().get("value");
+                if (val instanceof String s) {
+                    return s.getBytes(StandardCharsets.UTF_8);
                 }
             }
-        } catch (final Exception e) {
-            System.err.println("Sharding GET failed to http://" + nodeAddress + ": " + e.getMessage());
+        } catch (Exception e) {
+            log.warn("Remote GET failed on {}: {}", nodeAddress, e.toString());
         }
         return null;
     }
 
     public boolean put(final String nodeAddress, final byte[] key, final byte[] value) {
-        final String url = "http://" + nodeAddress + BASE_PATH + "/put";
-
-        final Map<String, String> requestBody = Map.of(
-                "key", Base64.getEncoder().encodeToString(key),
-                "value", Base64.getEncoder().encodeToString(value)
-        );
+        final String url = baseUrl(nodeAddress) + BASE_PATH + "/put";
 
         final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        final HttpEntity<Map<String, String>> entity = new HttpEntity<>(requestBody, headers);
+
+        final Map<String, String> body = Map.of(
+                "key", new String(key, StandardCharsets.UTF_8),
+                "value", new String(value, StandardCharsets.UTF_8)
+        );
 
         try {
-            final ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    url, HttpMethod.POST, entity,
-                    new ParameterizedTypeReference<Map<String, Object>>() {
-                    }
-            );
-
-            return response.getStatusCode() == HttpStatus.OK &&
-                    (response.getBody() != null ? (Boolean) response.getBody().get("success") : false);
-        } catch (final Exception e) {
-            System.err.println("Sharding PUT failed to http://" + nodeAddress + ": " + e.getMessage());
+            ResponseEntity<Map<String, Object>> resp = postJsonWithRedirect(url, body, headers);
+            return resp != null && resp.getStatusCode().is2xxSuccessful();
+        } catch (Exception e) {
+            log.warn("Remote PUT failed on {}: {}", nodeAddress, e.toString());
             return false;
         }
     }
 
-    public boolean isAlive(final String nodeAddress) {
-        final String url = "http://" + nodeAddress + BASE_PATH + "/health";
+    public boolean delete(final String nodeAddress, final byte[] key) {
+        final String url = baseUrl(nodeAddress) + BASE_PATH + "/delete";
 
-        final RestTemplate healthCheckTemplate = new RestTemplate();
-        final SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(1000);  // 1 секунда на подключение
-        factory.setReadTimeout(1500);     // 1.5 секунды на чтение
-        healthCheckTemplate.setRequestFactory(factory);
+        final HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        final Map<String, String> body = Map.of(
+                "key", new String(key, StandardCharsets.UTF_8)
+        );
 
         try {
-            final ResponseEntity<String> response = healthCheckTemplate.exchange(
-                    url, HttpMethod.GET, null, String.class
-            );
-            final boolean alive = response.getStatusCode().is2xxSuccessful();
-            if (!alive) {
-                log.debug("Node {} is DOWN (status: {})", nodeAddress, response.getStatusCode());
-            }
-            return alive;
-        } catch (final Exception e) {
-            log.debug("Node {} is DOWN (exception): {}", nodeAddress, e.getMessage());
+            ResponseEntity<Map<String, Object>> resp = postJsonWithRedirect(url, body, headers);
+            return resp != null && resp.getStatusCode().is2xxSuccessful();
+        } catch (Exception e) {
+            log.warn("Remote DELETE failed on {}: {}", nodeAddress, e.toString());
             return false;
         }
+    }
+
+    /**
+     * Выполнить POST JSON-запрос с обработкой одного уровня redirect (307/302 на лидера и т.п.).
+     */
+    private ResponseEntity<Map<String, Object>> postJsonWithRedirect(
+            String url,
+            Map<String, String> body,
+            HttpHeaders headers
+    ) {
+
+        RequestEntity<Map<String, String>> req =
+                new RequestEntity<>(body, headers, HttpMethod.POST, URI.create(url));
+
+        ResponseEntity<Map<String, Object>> resp =
+                http.exchange(req, MAP_TYPE);
+
+        if (resp.getStatusCode().is3xxRedirection() && resp.getHeaders().getLocation() != null) {
+            URI loc = resp.getHeaders().getLocation();
+            RequestEntity<Map<String, String>> redirected =
+                    new RequestEntity<>(body, headers, HttpMethod.POST, loc);
+            resp = http.exchange(redirected, MAP_TYPE);
+        }
+
+        return resp;
     }
 }
