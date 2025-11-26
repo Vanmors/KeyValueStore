@@ -4,8 +4,9 @@ import dev.kvstore.controller.request.*;
 import dev.kvstore.core.KVException;
 import dev.kvstore.core.KeyValueStore;
 import dev.kvstore.core.model.*;
-import dev.kvstore.raft.RaftService;
 import dev.kvstore.raft.RaftRpc;
+import dev.kvstore.raft.RaftService;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,8 +14,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import jakarta.annotation.PostConstruct;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -46,6 +45,11 @@ public class KVStoreController {
                 replicationMode,
                 keyValueStore != null,
                 keyValueStore == null ? "null" : keyValueStore.getClass().getName());
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        return ResponseEntity.ok("OK");
     }
 
     @GetMapping("mode")

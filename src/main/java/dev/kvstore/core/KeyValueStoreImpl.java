@@ -1,6 +1,5 @@
 package dev.kvstore.core;
 
-import dev.kvstore.controller.KVStoreController;
 import dev.kvstore.core.LSM.LSMEngine;
 import dev.kvstore.core.LSM.LSMEngineImpl;
 import dev.kvstore.core.model.*;
@@ -17,10 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 
 @Service
@@ -131,16 +127,21 @@ public class KeyValueStoreImpl implements KeyValueStore {
 
     private String getAnyLiveNode(final String shardId) throws KVException {
         final ShardInfo shard = shardingService.getAliveMembers(shardId);
-
-//        for (final String addr : members) {
-//            if (isAlive(addr)) {  // простой healthcheck: GET /health
-//                return addr;
-//            }
-//        }
-        if (shard != null) {
-            final List<String> members = new ArrayList<>(shard.members());
-            return members.get(0);
+        if (shard == null || shard.members().isEmpty()) {
+            throw new KVException("Shard not found or empty: " + shardId);
         }
+
+        final List<String> members = new ArrayList<>(shard.members());
+        Collections.shuffle(members);
+
+        for (final String addr : members) {
+            if (shardingClient.isAlive(addr)) {
+                log.debug("Selected live node {} for shard {}", addr, shardId);
+                return addr;
+            }
+        }
+
+        log.warn("No live nodes found for shard {} (checked: {})", shardId, members);
         throw new KVException("No live nodes in shard " + shardId);
     }
 
