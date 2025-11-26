@@ -1,7 +1,7 @@
 services:
   node1:
     build: .
-    image: kvstore:local
+    image: kvstore
     container_name: kvstore-node1
     ports: [ "9090:9090" ]
     environment:
@@ -19,7 +19,7 @@ services:
     networks: [ kvnet ]
 
   node2:
-    image: kvstore:local
+    image: kvstore
     container_name: kvstore-node2
     ports: [ "9091:9091" ]
     environment:
@@ -37,7 +37,7 @@ services:
     networks: [ kvnet ]
 
   node3:
-    image: kvstore:local
+    image: kvstore
     container_name: kvstore-node3
     ports: [ "9092:9092" ]
     environment:
@@ -56,7 +56,7 @@ services:
 
   node4:
     build: .
-    image: kvstore:local
+    image: kvstore
     container_name: kvstore-node4
     ports: [ "9093:9093" ]
     environment:
@@ -74,7 +74,7 @@ services:
     networks: [ kvnet ]
 
   node5:
-    image: kvstore:local
+    image: kvstore
     container_name: kvstore-node5
     ports: [ "9094:9094" ]
     environment:
@@ -92,7 +92,7 @@ services:
     networks: [ kvnet ]
 
   node6:
-    image: kvstore:local
+    image: kvstore
     container_name: kvstore-node6
     ports: [ "9095:9095" ]
     environment:

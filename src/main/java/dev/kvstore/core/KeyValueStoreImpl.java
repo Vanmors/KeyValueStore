@@ -1,5 +1,6 @@
 package dev.kvstore.core;
 
+import dev.kvstore.controller.KVStoreController;
 import dev.kvstore.core.LSM.LSMEngine;
 import dev.kvstore.core.LSM.LSMEngineImpl;
 import dev.kvstore.core.model.*;
@@ -7,6 +8,8 @@ import dev.kvstore.raft.RaftService;
 import dev.kvstore.sharding.ShardInfo;
 import dev.kvstore.sharding.ShardingClient;
 import dev.kvstore.sharding.ShardingService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +25,8 @@ import java.util.Map;
 
 @Service
 public class KeyValueStoreImpl implements KeyValueStore {
+
+    private static final Logger log = LoggerFactory.getLogger(KeyValueStoreImpl.class);
 
     private final LSMEngine lsmEngine;
 
@@ -82,6 +87,7 @@ public class KeyValueStoreImpl implements KeyValueStore {
     public GetResult get(final byte[] key, final ReadOptions options) throws KVException, IOException {
         final String shardId = shardingService.getNode(key);
 
+        log.info("shardId: '{}'", shardId);
         if (shardId.equals(myAddress)) {
             final var e = lsmEngine.get(key, options);
             if (e == null || e.tombstone()) {
@@ -92,6 +98,7 @@ public class KeyValueStoreImpl implements KeyValueStore {
 
         final String targetNode = getAnyLiveNode(shardId);
 
+        log.info("targetNode: '{}'", targetNode);
         // Читаем с другого узла
         final byte[] valueBytes = shardingClient.get(targetNode, key);
         return new GetResult(valueBytes != null, new ValueRecord(valueBytes, 0L, null));
@@ -104,6 +111,7 @@ public class KeyValueStoreImpl implements KeyValueStore {
         }
         final String shardId = shardingService.getNode(key);
 
+        log.trace("shardId: '{}'", shardId);
         // Если это наш узел — пишем локально
         if (shardId.equals(myAddress)) {
             final Entry created = lsmEngine.put(key, value, options);
@@ -115,6 +123,7 @@ public class KeyValueStoreImpl implements KeyValueStore {
 
         final String targetNode = getAnyLiveNode(shardId);
 
+        log.info("targetNode: '{}'", targetNode);
         // Иначе — отправляем на нужный узел
         final boolean success = shardingClient.put(targetNode, key, value);
         return new PutResult(success);
