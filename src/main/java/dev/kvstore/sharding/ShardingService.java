@@ -6,13 +6,16 @@ import dev.kvstore.core.KVException;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+
 
 @Service
 public class ShardingService {
@@ -20,8 +23,13 @@ public class ShardingService {
     private static final Logger log = LoggerFactory.getLogger(ShardingService.class);
 
     private final ConsistentHashing hashRing;
+
     private final BootstrapProperties properties;
+
     private final String myShardId;
+
+    @Autowired
+    private ShardingClient shardingClient;
 
     private final AtomicReference<GlobalClusterConfig> configRef = new AtomicReference<>();
 
@@ -80,7 +88,13 @@ public class ShardingService {
 
     public synchronized GlobalClusterConfig addShard(final String shardId, final Set<String> members) {
         final GlobalClusterConfig updated = configRef.get().addShard(shardId, members);
-        applyConfig(updated);
+        log.info("config {}", updated);
+        replicateConfig(updated);
         return updated;
+    }
+
+    private void replicateConfig(final GlobalClusterConfig config) {
+        final List<String> allNodes = config.shards().values().stream().flatMap(shard -> shard.members().stream()).toList();
+        shardingClient.replicateConfig(config, allNodes);
     }
 }

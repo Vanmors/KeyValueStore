@@ -1,0 +1,65 @@
+x-kv-env: &kv-env
+  SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/application.properties
+  KVSTORE_REPLICATIONMODE: RAFT
+  KVSTORE_DIR: /data
+  KVSTORE_MEMSIZE: "100000"
+
+x-kv-common: &kv-common
+  image: eclipse-temurin:21-jre
+  restart: unless-stopped
+  command: [ "java","-jar","/app/kvstore.jar" ]
+  networks: [ kvnet ]
+
+services:
+  node7:
+    <<: *kv-common
+    container_name: node7
+    environment:
+      <<: *kv-env
+      SERVER_PORT: 9096
+      KVSTORE_NODEID: http://node7:9096
+      KVSTORE_PEERADDRESSES: http://node8:9097,http://node9:9098
+      CLUSTER_SHARD_ID: shard-3
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node7-data:/data
+    ports: [ "9096:9096" ]
+
+  node8:
+    <<: *kv-common
+    container_name: node8
+    environment:
+      <<: *kv-env
+      SERVER_PORT: 9097
+      KVSTORE_NODEID: http://node8:9097
+      KVSTORE_PEERADDRESSES: http://node7:9096,http://node9:9098
+      CLUSTER_SHARD_ID: shard-3
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node8-data:/data
+    ports: [ "9097:9097" ]
+
+  node9:
+    <<: *kv-common
+    container_name: node9
+    environment:
+      <<: *kv-env
+      SERVER_PORT: 9098
+      KVSTORE_NODEID: http://node9:9098
+      KVSTORE_PEERADDRESSES: http://node7:9096,http://node8:9097
+      CLUSTER_SHARD_ID: shard-3
+      BOOTSTRAP: "true"
+    volumes:
+      - ./build/kvstore.jar:/app/kvstore.jar:ro
+      - ./conf/application.properties:/app/application.properties:ro
+      - node9-data:/data
+    ports: [ "9098:9098" ]
+
+volumes:
+  node7-data: {}
+  node8-data: {}
+  node9-data: {}

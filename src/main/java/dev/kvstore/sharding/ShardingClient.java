@@ -1,5 +1,6 @@
 package dev.kvstore.sharding;
 
+import dev.kvstore.config.GlobalClusterConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
@@ -11,6 +12,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -132,6 +134,22 @@ public class ShardingClient {
         } catch (Exception e) {
             log.warn("Remote DELETE failed on {}: {}", nodeAddress, e.toString());
             return false;
+        }
+    }
+
+    public void replicateConfig(final GlobalClusterConfig config, final List<String> allNodes) {
+        for (final String node: allNodes) {
+            try {
+                log.info("Send new config to node {}", node);
+                final String url = baseUrl(node) + "/cluster" + "/applyConfig";
+
+                log.info("url {}", url);
+
+                http.postForObject(url, config, ResponseEntity.class);
+
+                log.info("Config replicated to {}", node);
+            } catch (final Exception ignored) {
+            }
         }
     }
 

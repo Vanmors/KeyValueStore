@@ -6,6 +6,7 @@ import dev.kvstore.sharding.ShardingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +14,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
 
 /**
  * REST для просмотра/изменения конфигурации шардирования.
@@ -54,7 +56,9 @@ public class ClusterController {
         }
         final Set<String> members = new HashSet<>();
         for (Object o : membersCollection) {
-            if (o != null) members.add(o.toString());
+            if (o != null) {
+                members.add(o.toString());
+            }
         }
 
         log.info("[CLUSTER] add-shard shardId='{}' members={} rid={}", shardId, members, rid);
@@ -76,6 +80,18 @@ public class ClusterController {
         } else {
             log.info("[CLUSTER] shard '{}' aliveMembers={} rid={}", shardId, info.members().size(), rid);
             return ResponseEntity.ok(info);
+        }
+    }
+
+    @PostMapping("/applyConfig")
+    public ResponseEntity<String> applyConfig(@RequestBody final GlobalClusterConfig config) {
+        try {
+            log.info("[CLUSTER] Applying new config {}", config);
+            sharding.applyConfig(config);
+            return ResponseEntity.ok("Config applied");
+        } catch (final Exception e) {
+            log.warn("[CLUSTER] Failed applying new config: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to apply config: " + e.getMessage());
         }
     }
 }
