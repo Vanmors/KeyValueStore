@@ -32,4 +32,5 @@ public interface KeyValueStore {
 
     void flush() throws KVException, IOException;
 
+    void applyReplication(WALEntry walEntry) throws KVException, IOException;
 }

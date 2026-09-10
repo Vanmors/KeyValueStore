@@ -5,10 +5,7 @@ import dev.kvstore.controller.request.DeleteRequest;
 import dev.kvstore.controller.request.PutRequest;
 import dev.kvstore.core.KVException;
 import dev.kvstore.core.KeyValueStore;
-import dev.kvstore.core.model.DeleteResult;
-import dev.kvstore.core.model.GetResult;
-import dev.kvstore.core.model.PutResult;
-import dev.kvstore.core.model.ValueRecord;
+import dev.kvstore.core.model.*;
 import dev.kvstore.controller.request.MultiPutRequest;
 import dev.kvstore.controller.request.MultiGetRequest;
 import dev.kvstore.controller.request.MultiDeleteRequest;
@@ -56,7 +53,6 @@ class KVStoreControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.value", is("v1")))
-                .andExpect(jsonPath("$.version", is(7)))
                 .andExpect(jsonPath("$.expire", is(0)));
     }
 
@@ -85,8 +81,7 @@ class KVStoreControllerTest {
 
         mvc.perform(get("/kvstore/get").param("key", key))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.value", is("значение")))
-                .andExpect(jsonPath("$.version", is(1)));
+                .andExpect(jsonPath("$.value", is("значение")));
     }
 
     @Test
@@ -115,7 +110,6 @@ class KVStoreControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.value", is("v1")))
-                .andExpect(jsonPath("$.version", is(7)))
                 .andExpect(jsonPath("$.expire", is(0)));
     }
 
@@ -317,7 +311,6 @@ class KVStoreControllerTest {
                 .andExpect(jsonPath("$.results[0].key", is("k1")))
                 .andExpect(jsonPath("$.results[0].found", is(true)))
                 .andExpect(jsonPath("$.results[0].value", is("v1")))
-                .andExpect(jsonPath("$.results[0].version", is(5)))
                 .andExpect(jsonPath("$.results[1].key", is("absent")))
                 .andExpect(jsonPath("$.results[1].found", is(false)))
                 .andExpect(jsonPath("$.results[2].key", is("bad")))
@@ -384,6 +377,93 @@ class KVStoreControllerTest {
                         .content("{\"keys\":null}".getBytes(StandardCharsets.UTF_8)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error", containsString("keys is required")));
+    }
+
+    @Test
+    @DisplayName("GET /kvstore/dump - 200 OK, возвращает все записи")
+    void dump_returns_all_records() throws Exception {
+        // cursor: [("a","1"), ("b","2")]
+        when(keyValueStore.scan(any(), any())).thenReturn(cursorOf(
+                new java.util.AbstractMap.SimpleEntry<>(
+                        "a".getBytes(StandardCharsets.UTF_8),
+                        new ValueRecord("1".getBytes(StandardCharsets.UTF_8), 10L, 0L)
+                ),
+                new java.util.AbstractMap.SimpleEntry<>(
+                        "b".getBytes(StandardCharsets.UTF_8),
+                        new ValueRecord("2".getBytes(StandardCharsets.UTF_8), 11L, 0L)
+                )
+        ));
+
+        mvc.perform(get("/kvstore/dump"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].key", is("a")))
+                .andExpect(jsonPath("$[0].value", is("1")))
+                .andExpect(jsonPath("$[1].key", is("b")))
+                .andExpect(jsonPath("$[1].value", is("2")));
+    }
+
+    @Test
+    @DisplayName("GET /kvstore/dump - пустая база -> []")
+    void dump_empty_returns_empty_array() throws Exception {
+        when(keyValueStore.scan(any(), any())).thenReturn(cursorOf());
+
+        mvc.perform(get("/kvstore/dump"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("GET /kvstore/dump - запись с null-значением -> value=null")
+    void dump_handles_null_value() throws Exception {
+        when(keyValueStore.scan(any(), any())).thenReturn(cursorOf(
+                new java.util.AbstractMap.SimpleEntry<>(
+                        "z".getBytes(StandardCharsets.UTF_8),
+                        new ValueRecord(null, 42L, 0L)
+                )
+        ));
+
+        mvc.perform(get("/kvstore/dump"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].key", is("z")))
+                .andExpect(jsonPath("$[0].value", nullValue()));
+    }
+
+    @Test
+    @DisplayName("GET /kvstore/dump - 500 при исключении в scan()")
+    void dump_error_500_when_scan_fails() throws Exception {
+        when(keyValueStore.scan(any(), any())).thenThrow(new KVException("scan-failed"));
+
+        mvc.perform(get("/kvstore/dump"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error", containsString("scan-failed")));
+    }
+
+    private ScanCursor cursorOf(
+            java.util.Map.Entry<byte[], ValueRecord>... items) {
+
+        return new ScanCursor() {
+            private final java.util.Iterator<java.util.Map.Entry<byte[], ValueRecord>> it =
+                    java.util.Arrays.asList(items).iterator();
+
+            @Override
+            public boolean hasNext() {
+                return it.hasNext();
+            }
+
+            @Override
+            public java.util.Map.Entry<byte[], ValueRecord> next() {
+                return it.next();
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 
 }

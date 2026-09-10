@@ -1,0 +1,55 @@
+services:
+  node1:
+    build: .
+    image: kvstore:local
+    container_name: kvstore-node1
+    ports: [ "9090:9090" ]
+    environment:
+      - KVSTORE_DIR=/data
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=RAFT
+      - KVSTORE_NODEID=http://localhost:9090
+      - KVSTORE_PEERADDRESSES=http://node2:9091,http://node3:9092
+      - KVSTORE_RAFT_HEARTBEATMS=150
+      - KVSTORE_RAFT_ELECTIONMINMS=900
+      - KVSTORE_RAFT_ELECTIONMAXMS=1800
+      - SERVER_PORT=9090
+    volumes: [ "./node1-storage:/data" ]
+    networks: [ kvnet ]
+
+  node2:
+    image: kvstore:local
+    container_name: kvstore-node2
+    ports: [ "9091:9091" ]
+    environment:
+      - KVSTORE_DIR=/data
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=RAFT
+      - KVSTORE_NODEID=http://localhost:9091
+      - KVSTORE_PEERADDRESSES=http://node1:9090,http://node3:9092
+      - KVSTORE_RAFT_HEARTBEATMS=150
+      - KVSTORE_RAFT_ELECTIONMINMS=900
+      - KVSTORE_RAFT_ELECTIONMAXMS=1800
+      - SERVER_PORT=9091
+    volumes: [ "./node2-storage:/data" ]
+    networks: [ kvnet ]
+
+  node3:
+    image: kvstore:local
+    container_name: kvstore-node3
+    ports: [ "9092:9092" ]
+    environment:
+      - KVSTORE_DIR=/data
+      - KVSTORE_MEMSIZE=100000
+      - KVSTORE_REPLICATIONMODE=RAFT
+      - KVSTORE_NODEID=http://localhost:9092
+      - KVSTORE_PEERADDRESSES=http://node1:9090,http://node2:9091
+      - KVSTORE_RAFT_HEARTBEATMS=150
+      - KVSTORE_RAFT_ELECTIONMINMS=900
+      - KVSTORE_RAFT_ELECTIONMAXMS=1800
+      - SERVER_PORT=9092
+    volumes: [ "./node3-storage:/data" ]
+    networks: [ kvnet ]
+
+networks:
+  kvnet:

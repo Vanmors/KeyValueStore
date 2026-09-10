@@ -2,10 +2,7 @@ package dev.kvstore.core.LSM;
 
 import dev.kvstore.core.model.Entry;
 
-import java.util.Arrays;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -63,5 +60,9 @@ public class MemTable {
         return java.util.Collections.unmodifiableNavigableMap(snap);
     }
 
-
+    public Map<byte[], Entry> snapshot() {
+        var copy = new java.util.TreeMap<byte[], Entry>(java.util.Arrays::compare);
+        copy.putAll(skipList);
+        return java.util.Collections.unmodifiableMap(copy);
+    }
 }
